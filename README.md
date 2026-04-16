@@ -44,7 +44,7 @@ No Python or Node.js installation required — everything runs inside containers
 
 ```bash
 # 1. Clone the repository
-git clone https://github.com/<your-username>/Animal_SQL.git
+git clone https://github.com/AmaroSep/Animal_SQL.git
 cd Animal_SQL
 
 # 2. Configure environment variables
