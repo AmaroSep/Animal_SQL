@@ -17,6 +17,7 @@ services:
     container_name: bioterio_backend
     volumes:
       - ./backend:/app
+      - gel_uploads:/app/uploads
     ports:
       - "8000:8000"
     environment:
@@ -39,3 +40,4 @@ services:
 
 volumes:
   postgres_data:
+  gel_uploads:
