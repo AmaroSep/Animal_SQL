@@ -36,8 +36,47 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+def run_migrations():
+    """
+    Safe ALTER TABLE migrations for columns added in v2.
+    Uses IF NOT EXISTS so it's always safe to run on existing DBs.
+    """
+    migrations = [
+        # v2: genotype validation tracking on animals
+        "ALTER TABLE animals ADD COLUMN IF NOT EXISTS genotype_validated BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE animals ADD COLUMN IF NOT EXISTS genotype_validated_at TIMESTAMP",
+        # v2: colony responsible assignment on racks
+        """
+        DO $$
+        BEGIN
+            IF NOT EXISTS (
+                SELECT 1 FROM information_schema.columns
+                WHERE table_name='racks' AND column_name='responsible_id'
+            ) THEN
+                ALTER TABLE racks ADD COLUMN responsible_id INTEGER
+                    REFERENCES colony_responsibles(id) ON DELETE SET NULL;
+            END IF;
+        END$$;
+        """,
+    ]
+    with engine.connect() as conn:
+        for sql in migrations:
+            try:
+                conn.execute(database.text(sql))
+            except Exception as e:
+                print(f"Migration warning (safe to ignore if already applied): {e}")
+        conn.commit()
+
+
 @app.on_event("startup")
 def startup_event():
+    # 1. Create all new tables (no-op for existing ones)
+    models.Base.metadata.create_all(bind=engine)
+
+    # 2. Apply column-level migrations for existing tables
+    run_migrations()
+
+    # 3. Seed racks/cages if first run
     db = database.SessionLocal()
     try:
         if db.query(models.Rack).count() == 0:
@@ -45,7 +84,6 @@ def startup_event():
                 rack = models.Rack(name=f"RACK {i}")
                 db.add(rack)
                 db.flush()
-                
                 for row in range(1, 11):
                     for col in range(1, 8):
                         cage = models.Cage(rack_id=rack.id, row=row, column=col)
