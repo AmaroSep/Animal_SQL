@@ -1,6 +1,6 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Activity, FlaskConical, ChevronRight, Grid3x3 } from 'lucide-react';
+import { Activity, ChevronRight, Grid3x3 } from 'lucide-react';
 
 const modules = [
   {
@@ -14,18 +14,6 @@ const modules = [
     borderClass: 'border-cyan-500/30 hover:border-cyan-400',
     iconBg: 'bg-cyan-500/10 text-cyan-400',
     badgeClass: 'bg-cyan-500/20 text-cyan-300 border-cyan-500/30',
-  },
-  {
-    path: '/experiments',
-    icon: FlaskConical,
-    label: 'Experiment Manager',
-    sublabel: 'Diseño experimental',
-    description: 'Diseña experimentos, calcula n, valida genotipos por gel y registra extracciones.',
-    accent: 'violet',
-    glowClass: 'shadow-[0_0_60px_rgba(139,92,246,0.15)]',
-    borderClass: 'border-violet-500/30 hover:border-violet-400',
-    iconBg: 'bg-violet-500/10 text-violet-400',
-    badgeClass: 'bg-violet-500/20 text-violet-300 border-violet-500/30',
   },
   {
     path: '/em-grids',

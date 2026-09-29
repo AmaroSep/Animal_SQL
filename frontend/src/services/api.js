@@ -23,6 +23,10 @@ export const fetchRacks = () => request('/racks');
 export const fetchRack = (id) => request(`/racks/${id}`);
 export const updateCageBreedingStatus = (cageId, isBreedingPair) =>
   request(`/cages/${cageId}/breeding_status`, json('PATCH', { is_breeding_pair: isBreedingPair }));
+export const updateCageNumber = (cageId, cageNumber) =>
+  request(`/cages/${cageId}/number`, json('PATCH', { cage_number: cageNumber }));
+export const swapCagePositions = (cageAId, cageBId) =>
+  request('/cages/swap-positions', json('POST', { cage_a_id: cageAId, cage_b_id: cageBId }));
 export const mergeCages = (sourceId, destId) =>
   request('/cages/merge', json('POST', { source_cage_id: sourceId, destination_cage_id: destId }));
 
@@ -55,66 +59,6 @@ export const updateResponsible = (id, data) => request(`/responsibles/${id}`, js
 export const assignRackResponsible = (rackId, responsibleId) =>
   request(`/responsibles/racks/${rackId}/responsible`, json('PATCH', { responsible_id: responsibleId }));
 
-// ── Experiments ────────────────────────────────────────────────────────────
-
-export const fetchExperiments = () => request('/experiments');
-export const fetchExperiment = (id) => request(`/experiments/${id}`);
-export const createExperiment = (data) => request('/experiments', json('POST', data));
-export const updateExperiment = (id, data) => request(`/experiments/${id}`, json('PUT', data));
-export const deleteExperiment = (id) => request(`/experiments/${id}`, { method: 'DELETE' });
-
-export const calculateN = (data) => request('/experiments/calculate-n', json('POST', data));
-
-// Groups
-export const createGroup = (expId, data) => request(`/experiments/${expId}/groups`, json('POST', data));
-export const updateGroup = (expId, groupId, data) =>
-  request(`/experiments/${expId}/groups/${groupId}`, json('PUT', data));
-export const deleteGroup = (expId, groupId) =>
-  request(`/experiments/${expId}/groups/${groupId}`, { method: 'DELETE' });
-
-// Animal assignments
-export const fetchExperimentAnimals = (expId) => request(`/experiments/${expId}/animals`);
-export const assignAnimal = (expId, data) => request(`/experiments/${expId}/animals`, json('POST', data));
-export const updateAnimalAssignment = (expId, assignId, data) =>
-  request(`/experiments/${expId}/animals/${assignId}`, json('PATCH', data));
-export const removeAnimalFromExperiment = (expId, assignId) =>
-  request(`/experiments/${expId}/animals/${assignId}`, { method: 'DELETE' });
-
-// ── Gels ───────────────────────────────────────────────────────────────────
-
-export const fetchGels = (experimentId = null) => {
-  const q = experimentId != null ? `?experiment_id=${experimentId}` : '';
-  return request(`/gels${q}`);
-};
-export const fetchGel = (id) => request(`/gels/${id}`);
-export const uploadGel = (file, { experimentId, notes, validatedBy, laneCount = 12 }) => {
-  const formData = new FormData();
-  formData.append('file', file);
-  if (experimentId != null) formData.append('experiment_id', experimentId);
-  if (notes) formData.append('notes', notes);
-  if (validatedBy) formData.append('validated_by', validatedBy);
-  formData.append('lane_count', laneCount);
-  return request('/gels', { method: 'POST', body: formData });
-};
-export const updateGel = (id, data) => request(`/gels/${id}`, json('PUT', data));
-export const updateLane = (gelId, laneId, data) =>
-  request(`/gels/${gelId}/lanes/${laneId}`, json('PATCH', data));
-export const deleteGel = (id) => request(`/gels/${id}`, { method: 'DELETE' });
-
-export const gelImageUrl = (imagePath) => `${API_URL}/${imagePath}`;
-
-// ── Extractions ────────────────────────────────────────────────────────────
-
-export const fetchExtractions = ({ animalId, experimentId } = {}) => {
-  const params = new URLSearchParams();
-  if (animalId) params.append('animal_id', animalId);
-  if (experimentId != null) params.append('experiment_id', experimentId);
-  const q = params.toString() ? `?${params}` : '';
-  return request(`/extractions${q}`);
-};
-export const createExtraction = (data) => request('/extractions', json('POST', data));
-export const updateExtraction = (id, data) => request(`/extractions/${id}`, json('PUT', data));
-export const deleteExtraction = (id) => request(`/extractions/${id}`, { method: 'DELETE' });
 
 // ── EM Grids ───────────────────────────────────────────────────────────────
 

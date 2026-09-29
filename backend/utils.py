@@ -1,24 +1,32 @@
 import calendar
-from datetime import date
+from datetime import date, datetime
+from typing import Optional
 
 
-def calculate_age_display(dob: date) -> str:
-    today = date.today()
-    months = (today.year - dob.year) * 12 + today.month - dob.month
-    if today.day < dob.day:
+def _age_reference_date(status_changed_at: Optional[datetime], status: Optional[str]) -> date:
+    """Animals no longer alive stop aging at the moment their status changed."""
+    if status is not None and str(status) != "Vivo" and status_changed_at is not None:
+        return status_changed_at.date()
+    return date.today()
+
+
+def calculate_age_display(dob: date, status_changed_at: Optional[datetime] = None, status: Optional[str] = None) -> str:
+    reference = _age_reference_date(status_changed_at, status)
+    months = (reference.year - dob.year) * 12 + reference.month - dob.month
+    if reference.day < dob.day:
         months -= 1
-        prev_month = today.month - 1 if today.month > 1 else 12
-        prev_year = today.year if today.month > 1 else today.year - 1
+        prev_month = reference.month - 1 if reference.month > 1 else 12
+        prev_year = reference.year if reference.month > 1 else reference.year - 1
         _, days_in_prev = calendar.monthrange(prev_year, prev_month)
-        days = days_in_prev - dob.day + today.day
+        days = days_in_prev - dob.day + reference.day
     else:
-        days = today.day - dob.day
+        days = reference.day - dob.day
     return f"{months}m {days}d"
 
 
-def calculate_age_months(dob: date) -> int:
-    today = date.today()
-    months = (today.year - dob.year) * 12 + today.month - dob.month
-    if today.day < dob.day:
+def calculate_age_months(dob: date, status_changed_at: Optional[datetime] = None, status: Optional[str] = None) -> int:
+    reference = _age_reference_date(status_changed_at, status)
+    months = (reference.year - dob.year) * 12 + reference.month - dob.month
+    if reference.day < dob.day:
         months -= 1
     return months

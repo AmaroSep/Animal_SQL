@@ -1,31 +1,20 @@
 from fastapi import FastAPI, Depends, HTTPException, status, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import Session
 from typing import List
-from datetime import date
+from datetime import date, datetime
 from fastapi.responses import StreamingResponse
 import io, csv, os
 import models, schemas, database
 from database import engine, get_db
-from routers import experiments, gels, extractions, responsibles, em_grids
+from routers import responsibles, em_grids
 from utils import calculate_age_display, calculate_age_months
 
 # Create tables
 models.Base.metadata.create_all(bind=engine)
 
-# Ensure uploads directory exists
-os.makedirs("/app/uploads/gels", exist_ok=True)
-
 app = FastAPI(title="Bioterio Management System API")
 
-# Serve uploaded gel images
-app.mount("/uploads", StaticFiles(directory="/app/uploads"), name="uploads")
-
-# Register new routers
-app.include_router(experiments.router)
-app.include_router(gels.router)
-app.include_router(extractions.router)
 app.include_router(responsibles.router)
 app.include_router(em_grids.router)
 
@@ -56,6 +45,71 @@ def run_migrations():
             ) THEN
                 ALTER TABLE racks ADD COLUMN responsible_id INTEGER
                     REFERENCES colony_responsibles(id) ON DELETE SET NULL;
+            END IF;
+        END$$;
+        """,
+        # v3: correlative cage number — historical, never reused
+        "ALTER TABLE cages ADD COLUMN IF NOT EXISTS cage_number INTEGER",
+        # v3: create global sequence for new cages if it doesn't exist yet
+        # (assignment of existing cages is handled manually or via seed)
+        """
+        DO $$
+        DECLARE max_num INTEGER;
+        BEGIN
+            SELECT COALESCE(MAX(cage_number), 0) INTO max_num FROM cages;
+            IF NOT EXISTS (SELECT 1 FROM pg_sequences WHERE sequencename = 'cage_number_seq') THEN
+                EXECUTE format('CREATE SEQUENCE cage_number_seq START %s', max_num + 1);
+            END IF;
+        END$$;
+        """,
+        # v3: migrate animals.id from VARCHAR (user-provided) to SERIAL (auto-int)
+        # Only runs if the column is still VARCHAR type
+        """
+        DO $$
+        BEGIN
+            IF EXISTS (
+                SELECT 1 FROM information_schema.columns
+                WHERE table_name='animals' AND column_name='id' AND data_type='character varying'
+            ) THEN
+                -- Drop dependent FKs
+                ALTER TABLE experiment_animals DROP CONSTRAINT IF EXISTS experiment_animals_animal_id_fkey;
+                ALTER TABLE gel_lanes DROP CONSTRAINT IF EXISTS gel_lanes_animal_id_fkey;
+                ALTER TABLE extractions DROP CONSTRAINT IF EXISTS extractions_animal_id_fkey;
+
+                -- Add new integer PK column
+                ALTER TABLE animals ADD COLUMN IF NOT EXISTS new_id SERIAL;
+
+                -- Migrate FK columns to integer (set to new_id mapping via rownum)
+                ALTER TABLE experiment_animals ADD COLUMN IF NOT EXISTS new_animal_id INTEGER;
+                ALTER TABLE gel_lanes ADD COLUMN IF NOT EXISTS new_animal_id INTEGER;
+                ALTER TABLE extractions ADD COLUMN IF NOT EXISTS new_animal_id INTEGER;
+
+                -- Drop old PK and rename
+                ALTER TABLE animals DROP CONSTRAINT animals_pkey;
+                ALTER TABLE animals DROP COLUMN id;
+                ALTER TABLE animals RENAME COLUMN new_id TO id;
+                ALTER TABLE animals ADD PRIMARY KEY (id);
+
+                -- Drop old FK columns (data lost for previous experiment links, acceptable)
+                ALTER TABLE experiment_animals DROP COLUMN IF EXISTS animal_id;
+                ALTER TABLE experiment_animals RENAME COLUMN new_animal_id TO animal_id;
+
+                ALTER TABLE gel_lanes DROP COLUMN IF EXISTS animal_id;
+                ALTER TABLE gel_lanes RENAME COLUMN new_animal_id TO animal_id;
+
+                ALTER TABLE extractions DROP COLUMN IF EXISTS animal_id;
+                ALTER TABLE extractions RENAME COLUMN new_animal_id TO animal_id;
+
+                -- Re-add NOT NULL constraint on extractions.animal_id
+                ALTER TABLE extractions ALTER COLUMN animal_id SET NOT NULL;
+
+                -- Restore FKs
+                ALTER TABLE experiment_animals ADD CONSTRAINT experiment_animals_animal_id_fkey
+                    FOREIGN KEY (animal_id) REFERENCES animals(id);
+                ALTER TABLE gel_lanes ADD CONSTRAINT gel_lanes_animal_id_fkey
+                    FOREIGN KEY (animal_id) REFERENCES animals(id);
+                ALTER TABLE extractions ADD CONSTRAINT extractions_animal_id_fkey
+                    FOREIGN KEY (animal_id) REFERENCES animals(id);
             END IF;
         END$$;
         """,
@@ -90,6 +144,11 @@ def startup_event():
                         cage = models.Cage(rack_id=rack.id, row=row, column=col)
                         db.add(cage)
             db.commit()
+            # Assign historical correlatives and align sequence to next available number
+            db.execute(database.text("UPDATE cages SET cage_number = id WHERE cage_number IS NULL"))
+            max_num = db.execute(database.text("SELECT COALESCE(MAX(cage_number), 0) FROM cages")).scalar()
+            db.execute(database.text(f"SELECT setval('cage_number_seq', {max_num})"))
+            db.commit()
     finally:
         db.close()
 
@@ -102,7 +161,7 @@ def get_racks(db: Session = Depends(get_db)):
             # Filter live animals for the rack view
             cage.animals = [a for a in cage.animals if a.status == models.AnimalStatus.ALIVE]
             for animal in cage.animals:
-                animal.age_display = calculate_age_display(animal.dob)
+                animal.age_display = calculate_age_display(animal.dob, animal.status_changed_at, animal.status)
     return racks
 
 @app.get("/racks/{rack_id}", response_model=schemas.Rack)
@@ -114,7 +173,7 @@ def get_rack(rack_id: int, db: Session = Depends(get_db)):
         # Filter live animals for the rack view
         cage.animals = [a for a in cage.animals if a.status == models.AnimalStatus.ALIVE]
         for animal in cage.animals:
-            animal.age_display = calculate_age_display(animal.dob)
+            animal.age_display = calculate_age_display(animal.dob, animal.status_changed_at, animal.status)
     return rack
 
 @app.get("/cages/{cage_id}/animals", response_model=List[schemas.Animal])
@@ -125,7 +184,7 @@ def get_cage_animals(cage_id: int, db: Session = Depends(get_db)):
         models.Animal.status == models.AnimalStatus.ALIVE
     ).all()
     for animal in animals:
-        animal.age_display = calculate_age_display(animal.dob)
+        animal.age_display = calculate_age_display(animal.dob, animal.status_changed_at, animal.status)
     return animals
 
 @app.patch("/cages/{cage_id}/breeding_status", response_model=schemas.Cage)
@@ -144,18 +203,71 @@ def update_cage_breeding_status(cage_id: int, status_update: schemas.CageUpdate,
         
     db_cage.animals = [a for a in db_cage.animals if a.status == models.AnimalStatus.ALIVE]
     for animal in db_cage.animals:
-        animal.age_display = calculate_age_display(animal.dob)
+        animal.age_display = calculate_age_display(animal.dob, animal.status_changed_at, animal.status)
         
     return db_cage
 
+@app.post("/cages", response_model=schemas.Cage, status_code=status.HTTP_201_CREATED)
+def create_cage(cage_data: schemas.CageCreate, db: Session = Depends(get_db)):
+    next_num = db.execute(database.text("SELECT nextval('cage_number_seq')")).scalar()
+    db_cage = models.Cage(
+        row=cage_data.row,
+        column=cage_data.column,
+        rack_id=cage_data.rack_id,
+        cage_number=next_num
+    )
+    db.add(db_cage)
+    try:
+        db.commit()
+        db.refresh(db_cage)
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+    db_cage.animals = []
+    return db_cage
+
+@app.patch("/cages/{cage_id}/number", response_model=schemas.Cage)
+def update_cage_number(cage_id: int, update: schemas.CageNumberUpdate, db: Session = Depends(get_db)):
+    db_cage = db.query(models.Cage).filter(models.Cage.id == cage_id).first()
+    if not db_cage:
+        raise HTTPException(status_code=404, detail="Cage not found")
+    db_cage.cage_number = update.cage_number
+    try:
+        db.commit()
+        db.refresh(db_cage)
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+    db_cage.animals = [a for a in db_cage.animals if a.status == models.AnimalStatus.ALIVE]
+    for animal in db_cage.animals:
+        animal.age_display = calculate_age_display(animal.dob, animal.status_changed_at, animal.status)
+    return db_cage
+
+@app.post("/cages/swap-positions")
+def swap_cage_positions(swap: schemas.CageSwapPositions, db: Session = Depends(get_db)):
+    cage_a = db.query(models.Cage).filter(models.Cage.id == swap.cage_a_id).first()
+    cage_b = db.query(models.Cage).filter(models.Cage.id == swap.cage_b_id).first()
+    if not cage_a or not cage_b:
+        raise HTTPException(status_code=404, detail="Cage not found")
+    cage_a.row, cage_b.row = cage_b.row, cage_a.row
+    cage_a.column, cage_b.column = cage_b.column, cage_a.column
+    try:
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"message": "Positions swapped"}
+
 @app.get("/animals/history", response_model=List[schemas.Animal])
-def get_animals_history(db: Session = Depends(get_db)):
+def get_animals_history(limit: int = 500, offset: int = 0, db: Session = Depends(get_db)):
     # Feature C: Return "Muerto" or "Eliminado" animals
+    limit = max(1, min(limit, 500))
+    offset = max(0, offset)
     animals = db.query(models.Animal).filter(
         models.Animal.status != models.AnimalStatus.ALIVE
-    ).all()
+    ).order_by(models.Animal.id.desc()).offset(offset).limit(limit).all()
     for animal in animals:
-        animal.age_display = calculate_age_display(animal.dob)
+        animal.age_display = calculate_age_display(animal.dob, animal.status_changed_at, animal.status)
     return animals
 
 @app.get("/statistics")
@@ -174,7 +286,7 @@ def get_statistics(db: Session = Depends(get_db)):
         # Map sex to canonical keys (M/F) for the dashboard
         sex = "M" if animal.sex == models.AnimalSex.MALE else "F"
         
-        months = calculate_age_months(animal.dob)
+        months = calculate_age_months(animal.dob, animal.status_changed_at, animal.status)
         
         # Age distribution (counts per month)
         age_distribution[months] = age_distribution.get(months, 0) + 1
@@ -222,6 +334,8 @@ def get_statistics(db: Session = Depends(get_db)):
 @app.post("/animals", response_model=schemas.Animal, status_code=status.HTTP_201_CREATED)
 def create_animal(animal: schemas.AnimalCreate, db: Session = Depends(get_db)):
     db_animal = models.Animal(**animal.dict())
+    if db_animal.status != models.AnimalStatus.ALIVE:
+        db_animal.status_changed_at = datetime.utcnow()
     db.add(db_animal)
     try:
         db.commit()
@@ -230,30 +344,42 @@ def create_animal(animal: schemas.AnimalCreate, db: Session = Depends(get_db)):
         db.rollback()
         raise HTTPException(status_code=400, detail=str(e))
     
-    db_animal.age_display = calculate_age_display(db_animal.dob)
+    db_animal.age_display = calculate_age_display(db_animal.dob, db_animal.status_changed_at, db_animal.status)
     return db_animal
 
 @app.patch("/animals/{animal_id}/status", response_model=schemas.Animal)
-def update_animal_status(animal_id: str, status_update: schemas.StatusUpdate, db: Session = Depends(get_db)):
+def update_animal_status(animal_id: int, status_update: schemas.StatusUpdate, db: Session = Depends(get_db)):
     animal = db.query(models.Animal).filter(models.Animal.id == animal_id).first()
     if not animal:
         raise HTTPException(status_code=404, detail="Animal not found")
     
+    if status_update.status != models.AnimalStatus.ALIVE and not (status_update.reason and status_update.reason.strip()):
+        raise HTTPException(status_code=400, detail="A reason is required when marking an animal as Dead or Eliminated")
+
+    if status_update.status != animal.status:
+        if status_update.status == models.AnimalStatus.ALIVE:
+            animal.status_changed_at = None
+        else:
+            animal.status_changed_at = datetime.utcnow()
     animal.status = status_update.status
     animal.elimination_reason = status_update.reason # Store the reason
     db.commit()
     db.refresh(animal)
     
-    animal.age_display = calculate_age_display(animal.dob)
+    animal.age_display = calculate_age_display(animal.dob, animal.status_changed_at, animal.status)
     return animal
 
 @app.put("/animals/{animal_id}", response_model=schemas.Animal)
-def update_animal(animal_id: str, animal_update: schemas.AnimalUpdate, db: Session = Depends(get_db)):
+def update_animal(animal_id: int, animal_update: schemas.AnimalUpdate, db: Session = Depends(get_db)):
     db_animal = db.query(models.Animal).filter(models.Animal.id == animal_id).first()
     if not db_animal:
         raise HTTPException(status_code=404, detail="Animal not found")
     
     update_data = animal_update.dict(exclude_unset=True)
+    if update_data.get("cage_id") is None:
+        update_data.pop("cage_id", None)
+    elif not db.query(models.Cage).filter(models.Cage.id == update_data["cage_id"]).first():
+        raise HTTPException(status_code=404, detail="Cage not found")
     for key, value in update_data.items():
         setattr(db_animal, key, value)
     
@@ -264,7 +390,7 @@ def update_animal(animal_id: str, animal_update: schemas.AnimalUpdate, db: Sessi
         db.rollback()
         raise HTTPException(status_code=400, detail=str(e))
     
-    db_animal.age_display = calculate_age_display(db_animal.dob)
+    db_animal.age_display = calculate_age_display(db_animal.dob, db_animal.status_changed_at, db_animal.status)
     return db_animal
 
 @app.post("/breeding/create")
@@ -281,8 +407,10 @@ def create_breeding_group(breeding: schemas.BreedingCreate, db: Session = Depend
     for animal_id in breeding.animal_ids:
         animal = db.query(models.Animal).filter(models.Animal.id == animal_id).first()
         if animal:
-            # Save original home if not already in one (prevent nested breeding loss)
-            if not animal.previous_cage_id:
+            # Save current cage as the home to return to when this breeding session ends.
+            # Always overwrite: a stale previous_cage_id from an unclosed prior session
+            # must not survive into a new breeding assignment.
+            if animal.cage_id != target_cage.id:
                 animal.previous_cage_id = animal.cage_id
             # Move to new home
             animal.cage_id = target_cage.id
@@ -313,11 +441,12 @@ def end_breeding_session(cage_id: int, end_data: schemas.BreedingEnd, db: Sessio
     for animal in animals:
         if end_data.target_option == "Home" and animal.previous_cage_id:
             animal.cage_id = animal.previous_cage_id
+            animal.previous_cage_id = None
         elif end_data.target_option == "New" and end_data.new_cage_id:
             animal.cage_id = end_data.new_cage_id
-            
-        # Clear previous home
-        animal.previous_cage_id = None
+            animal.previous_cage_id = None
+        # else: no valid destination given — leave the animal in the breeding
+        # cage and keep previous_cage_id so it can still be sent home later.
         
     try:
         db.commit()
@@ -362,19 +491,24 @@ def export_animals_csv(db: Session = Depends(get_db)):
     
     # Headers
     writer.writerow([
-        "Animal ID", "Rack", "Cage", "Sex", 
+        "ID", "Cage Number", "Rack", "Cage Position", "Sex",
         "Date of Birth", "Mark", "Genotype", "Status", "Age", "Elimination Reason"
     ])
-    
+
     for animal in animals:
-        # Get rack and cage info
-        # We need the relationship joined for efficiency but for now simple query is fine
         cage = db.query(models.Cage).filter(models.Cage.id == animal.cage_id).first()
         rack_name = db.query(models.Rack).filter(models.Rack.id == cage.rack_id).first().name if cage else "N/A"
-        cage_label = cage.display_id if cage else "N/A"
-        
+        if cage:
+            col_letter = chr(64 + cage.column)
+            rack_num = rack_name.split()[-1]
+            cage_label = f"{col_letter}{cage.row}-R{rack_num}"
+        else:
+            cage_label = "N/A"
+        cage_number = cage.cage_number if cage and cage.cage_number is not None else ""
+
         writer.writerow([
             animal.id,
+            cage_number,
             rack_name,
             cage_label,
             animal.sex,
@@ -382,7 +516,7 @@ def export_animals_csv(db: Session = Depends(get_db)):
             animal.mark or "",
             animal.genotype,
             animal.status,
-            calculate_age_display(animal.dob),
+            calculate_age_display(animal.dob, animal.status_changed_at, animal.status),
             animal.elimination_reason or ""
         ])
     
@@ -440,90 +574,108 @@ async def import_animals_csv(file: UploadFile = File(...), db: Session = Depends
 
     updated_count = 0
     created_count = 0
-    
-    for raw_row in reader:
-        # Clean row: strip spaces from both keys and values
-        # Handle cases where key might be None (extra columns in CSV)
-        row = {k.strip(): v.strip() if v else v for k, v in raw_row.items() if k is not None}
-        
-        animal_id = row.get("Animal ID")
-        if not animal_id: continue
-        
-        # Parse data
-        sex_str = row.get("Sex", "M")
-        sex = models.AnimalSex.MALE if sex_str == "M" else models.AnimalSex.FEMALE
-        
-        dob_str = row.get("Date of Birth")
-        dob = parse_date(dob_str)
-            
-        genotype = row.get("Genotype", "")
-        mark = row.get("Mark", "")
-        status_str = row.get("Status", "Vivo")
-        status = models.AnimalStatus(status_str)
-        
-        # Find the cage if provided (e.g. "A1-R3")
-        cage_label = row.get("Cage", "")
-        db_cage = None
-        if cage_label:
-            # We search for the cage that matches this display_id
-            # Note: models.Cage.display_id is a @property, so we can't query it effectively via DB
-            # We must parse it: A1-R3 -> col=1, row=1, rack_num=3
-            try:
-                parts = cage_label.split("-") # ["A1", "R3"]
-                col_row = parts[0] # "A1"
-                rack_part = parts[1] # "R3"
-                
-                col_letter = col_row[0] # "A"
-                row_num = int(col_row[1:]) # "1"
-                rack_num = rack_part[1:] # "3"
-                
-                col_num = ord(col_letter.upper()) - 64
-                
-                # Find Rack by name suffix
-                target_rack_name = f"RACK {rack_num}"
-                db_rack = db.query(models.Rack).filter(models.Rack.name == target_rack_name).first()
-                if db_rack:
-                    db_cage = db.query(models.Cage).filter(
-                        models.Cage.rack_id == db_rack.id,
-                        models.Cage.row == row_num,
-                        models.Cage.column == col_num
-                    ).first()
-            except:
-                pass
+    skipped_rows = []
 
-        # Check for existing animal
-        db_animal = db.query(models.Animal).filter(models.Animal.id == animal_id).first()
-        
-        if db_animal:
-            # Update
-            db_animal.sex = sex
-            db_animal.dob = dob
-            db_animal.genotype = genotype
-            db_animal.mark = mark
-            db_animal.status = status
-            if db_cage:
-                db_animal.cage_id = db_cage.id
-            updated_count += 1
-        else:
-            # Create (Requires Cage)
-            if db_cage:
-                new_animal = models.Animal(
-                    id=animal_id,
-                    sex=sex,
-                    dob=dob,
-                    genotype=genotype,
-                    mark=mark,
-                    status=status,
-                    cage_id=db_cage.id
-                )
-                db.add(new_animal)
-                created_count += 1
-                
+    for line_num, raw_row in enumerate(reader, start=2):  # header is line 1
+        row = {k.strip(): v.strip() if v else v for k, v in raw_row.items() if k is not None}
+
+        mark = row.get("Mark", "").strip()
+        if not mark:
+            continue
+
+        try:
+            sex_str = row.get("Sex", "M")
+            sex = models.AnimalSex.MALE if sex_str == "M" else models.AnimalSex.FEMALE
+
+            dob_str = row.get("Date of Birth")
+            dob = parse_date(dob_str)
+
+            genotype = row.get("Genotype", "")
+            status_str = row.get("Status", "Vivo").strip()
+            status = models.AnimalStatus(status_str)
+
+            # Find cage by cage_number if provided, otherwise by position label
+            db_cage = None
+            cage_number_str = row.get("Cage Number", "").strip()
+            if cage_number_str:
+                try:
+                    cn = int(cage_number_str)
+                    db_cage = db.query(models.Cage).filter(models.Cage.cage_number == cn).first()
+                except ValueError:
+                    pass
+
+            if not db_cage:
+                cage_label = row.get("Cage Position", "")
+                if cage_label:
+                    try:
+                        parts = cage_label.split("-")
+                        col_row = parts[0]
+                        rack_part = parts[1]
+                        col_letter = col_row[0]
+                        row_num = int(col_row[1:])
+                        rack_num = rack_part[1:]
+                        col_num = ord(col_letter.upper()) - 64
+                        target_rack_name = f"RACK {rack_num}"
+                        db_rack = db.query(models.Rack).filter(models.Rack.name == target_rack_name).first()
+                        if db_rack:
+                            db_cage = db.query(models.Cage).filter(
+                                models.Cage.rack_id == db_rack.id,
+                                models.Cage.row == row_num,
+                                models.Cage.column == col_num
+                            ).first()
+                    except Exception:
+                        pass
+
+            # Check for existing animal by internal ID
+            animal_id_str = row.get("ID", "").strip()
+            db_animal = None
+            if animal_id_str:
+                try:
+                    db_animal = db.query(models.Animal).filter(models.Animal.id == int(animal_id_str)).first()
+                except ValueError:
+                    pass
+
+            if db_animal:
+                if status != db_animal.status:
+                    db_animal.status_changed_at = None if status == models.AnimalStatus.ALIVE else datetime.utcnow()
+                db_animal.sex = sex
+                db_animal.dob = dob
+                db_animal.genotype = genotype
+                db_animal.mark = mark
+                db_animal.status = status
+                if db_cage:
+                    db_animal.cage_id = db_cage.id
+                updated_count += 1
+            else:
+                if db_cage:
+                    new_animal = models.Animal(
+                        sex=sex,
+                        dob=dob,
+                        genotype=genotype,
+                        mark=mark,
+                        status=status,
+                        status_changed_at=None if status == models.AnimalStatus.ALIVE else datetime.utcnow(),
+                        cage_id=db_cage.id
+                    )
+                    db.add(new_animal)
+                    created_count += 1
+                else:
+                    skipped_rows.append({"line": line_num, "mark": mark, "reason": "No matching cage found"})
+
+        except ValueError as e:
+            skipped_rows.append({"line": line_num, "mark": mark, "reason": str(e)})
+            continue
+
     try:
         db.commit()
     except Exception as e:
         db.rollback()
         print(f"IMPORT DATABASE ERROR: {str(e)}")
         raise HTTPException(status_code=400, detail=f"Database error during import: {str(e)}")
-        
-    return {"message": "Import completed", "updated": updated_count, "created": created_count}
+
+    return {
+        "message": "Import completed",
+        "updated": updated_count,
+        "created": created_count,
+        "skipped": skipped_rows,
+    }

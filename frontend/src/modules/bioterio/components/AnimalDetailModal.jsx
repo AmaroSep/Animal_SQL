@@ -37,10 +37,10 @@ export default function AnimalDetailModal({ animals, groupName, onClose }) {
                 >
                   <div className="flex items-center gap-4">
                     <div className="w-10 h-10 rounded-xl bg-biotech-accent/10 flex items-center justify-center text-biotech-accent border border-biotech-accent/20">
-                      <span className="text-xs font-black">{animal.id.slice(-2)}</span>
+                      <span className="text-xs font-black">#{animal.id}</span>
                     </div>
                     <div>
-                      <div className="text-sm font-black text-white tracking-tight">{animal.id}</div>
+                      <div className="text-sm font-black text-white tracking-tight">{animal.mark} <span className="text-white/30 text-xs font-mono">#{animal.id}</span></div>
                       <div className="flex items-center gap-2 mt-0.5">
                         <span className={`text-[9px] font-black px-1.5 py-0.5 rounded ${
                           animal.sex === 'M' ? 'bg-blue-500/10 text-blue-400' : 'bg-pink-500/10 text-pink-400'

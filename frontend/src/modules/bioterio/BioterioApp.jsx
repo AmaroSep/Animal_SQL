@@ -2,8 +2,9 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import CageModal from './components/CageModal';
 import StatisticsDashboard from './components/StatisticsDashboard';
-import { LayoutGrid, Database, Activity, RefreshCw, Plus, History, ChevronLeft, Skull, Trash2, BarChart3, X, Download, Upload, Home } from 'lucide-react';
-import { fetchRacks, fetchRack, createAnimal, fetchHistory, fetchStatistics, updateAnimal, importAnimals } from '../../services/api';
+import AgeRiverView from './components/AgeRiverView';
+import { LayoutGrid, Database, Activity, RefreshCw, Plus, History, ChevronLeft, Skull, Trash2, BarChart3, Waves, X, Download, Upload, Home } from 'lucide-react';
+import { fetchRacks, fetchRack, createAnimal, fetchHistory, fetchStatistics, updateAnimal, importAnimals, swapCagePositions } from '../../services/api';
 
 export default function BioterioApp() {
   const navigate = useNavigate();
@@ -15,21 +16,20 @@ export default function BioterioApp() {
   
   // V1.1 & V1.2 State
   const [showAddModal, setShowAddModal] = useState(false);
-  const [viewMode, setViewMode] = useState('grid'); // 'grid', 'history', or 'stats'
+  const [viewMode, setViewMode] = useState('grid'); // 'grid', 'history', 'stats', or 'river'
   const [historyData, setHistoryData] = useState([]);
   const [statsData, setStatsData] = useState(null);
   const [isEditing, setIsEditing] = useState(false);
   const [newAnimal, setNewAnimal] = useState({
-    id: '', 
-    sex: 'M', 
-    dob: new Date().toISOString().split('T')[0], 
-    mark: '', 
-    genotype: '', 
-    rack_id: '3', 
-    cage_num: '1',
+    sex: 'M',
+    dob: new Date().toISOString().split('T')[0],
+    mark: '',
+    genotype: '',
+    cage_id: null,
     status: 'Vivo'
   });
-  const [originalId, setOriginalId] = useState(null);
+  const [editingAnimalId, setEditingAnimalId] = useState(null);
+  const [cageSearch, setCageSearch] = useState('');
 
   // V1.11 Breeding Wizard State
   const [showBreedingWizard, setShowBreedingWizard] = useState(false);
@@ -40,10 +40,15 @@ export default function BioterioApp() {
     targetCageId: null
   });
   const [breedingSearch, setBreedingSearch] = useState('');
+  const [breedingRackId, setBreedingRackId] = useState(null);
 
   // V1.3 Merge Mode State
   const [mergeSource, setMergeSource] = useState(null);
   const [isMergeMode, setIsMergeMode] = useState(false);
+
+  // Drag & drop reposition state
+  const [draggedCage, setDraggedCage] = useState(null);
+  const [dragOverCage, setDragOverCage] = useState(null);
 
   const loadData = async () => {
     setLoading(true);
@@ -91,77 +96,73 @@ export default function BioterioApp() {
     e.preventDefault();
     try {
       if (isEditing) {
-        await updateAnimal(originalId, {
-          id: newAnimal.id,
-          sex: newAnimal.sex,
-          dob: newAnimal.dob,
-          mark: newAnimal.mark,
-          genotype: newAnimal.genotype
-        });
-        alert('Animal updated successfully');
-      } else {
-        const cageId = (parseInt(newAnimal.rack_id) - 3) * 70 + parseInt(newAnimal.cage_num);
-        await createAnimal({
-          id: newAnimal.id,
+        if (!newAnimal.cage_id) { alert('Selecciona una jaula'); return; }
+        await updateAnimal(editingAnimalId, {
           sex: newAnimal.sex,
           dob: newAnimal.dob,
           mark: newAnimal.mark,
           genotype: newAnimal.genotype,
-          cage_id: cageId
+          cage_id: newAnimal.cage_id
         });
-        alert('Animal added successfully');
+        alert('Animal actualizado');
+      } else {
+        if (!newAnimal.cage_id) { alert('Selecciona una jaula'); return; }
+        await createAnimal({
+          sex: newAnimal.sex,
+          dob: newAnimal.dob,
+          mark: newAnimal.mark,
+          genotype: newAnimal.genotype,
+          cage_id: newAnimal.cage_id
+        });
+        alert('Animal registrado');
       }
       setShowAddModal(false);
       setIsEditing(false);
-      setOriginalId(null);
+      setEditingAnimalId(null);
       loadRackDetails();
     } catch (err) {
       console.error(err);
-      alert(isEditing ? 'Error updating animal' : 'Error adding animal');
+      alert(isEditing ? 'Error al actualizar animal' : 'Error al registrar animal');
     }
   };
 
   const handleEditAnimal = (animal) => {
-    // Determine physical rack_id and cage_num from DB data
-    // DB cage_id is used to calculate these if not already in animal object
-    // But calculate_age_display logic in backend already sends expanded info usually?
-    // Let's assume onEditAnimal(animal) passes the animal object from the cage list
-    
-    // Physical rack_id = 3, 4, or 5
-    // We need to find which rack this animal belongs to
-    // Rack info is in rackData since the modal is open
-    const physicalRackId = rackData.id + 2;
-    
     setNewAnimal({
-      id: animal.id,
       sex: animal.sex,
       dob: animal.dob,
       mark: animal.mark,
       genotype: animal.genotype,
-      rack_id: physicalRackId.toString(),
-      cage_num: ((selectedCage.row - 1) * 7 + selectedCage.column).toString(),
+      cage_id: animal.cage_id,
       status: animal.status
     });
-    setOriginalId(animal.id);
+    setCageSearch('');
+    setEditingAnimalId(animal.id);
     setIsEditing(true);
     setShowAddModal(true);
   };
 
   const handleAddAnimalFromCage = (cage) => {
-    // rack_id in newAnimal should be physical (3, 4, 5)
-    // DB rack_id is 1, 2, 3 for Racks 3, 4, 5 respectively
-    const rackNum = cage.rack_id + 2; 
-    // cage_num is (row-1)*7 + col
-    const cageNum = (cage.row - 1) * 7 + cage.column;
-    
-    setNewAnimal({
-      ...newAnimal,
-      rack_id: rackNum.toString(),
-      cage_num: cageNum.toString(),
-      id: '' // Clear ID for new entry
-    });
-    setSelectedCage(null); // Close cage modal first
+    setNewAnimal({ ...newAnimal, cage_id: cage.id });
+    setCageSearch('');
+    setSelectedCage(null);
     setShowAddModal(true);
+  };
+
+  const handleDrop = async (targetCage) => {
+    if (!draggedCage || draggedCage.id === targetCage.id) {
+      setDraggedCage(null);
+      setDragOverCage(null);
+      return;
+    }
+    try {
+      await swapCagePositions(draggedCage.id, targetCage.id);
+      await loadRackDetails();
+    } catch (err) {
+      alert('Error al mover jaula: ' + err.message);
+    } finally {
+      setDraggedCage(null);
+      setDragOverCage(null);
+    }
   };
 
   const handleExportCSV = () => {
@@ -177,7 +178,12 @@ export default function BioterioApp() {
     try {
       setLoading(true);
       const result = await importAnimals(file);
-      alert(`Import Successful!\nUpdated: ${result.updated}\nCreated: ${result.created}`);
+      let message = `Import Successful!\nUpdated: ${result.updated}\nCreated: ${result.created}`;
+      if (result.skipped && result.skipped.length > 0) {
+        message += `\n\nSkipped ${result.skipped.length} row(s):\n` +
+          result.skipped.map(s => `Line ${s.line} (${s.mark}): ${s.reason}`).join('\n');
+      }
+      alert(message);
       loadRackDetails();
       loadStatistics();
     } catch (err) {
@@ -223,15 +229,15 @@ export default function BioterioApp() {
 
   useEffect(() => { loadData(); }, []);
   useEffect(() => { loadRackDetails(); }, [selectedRackId]);
-  useEffect(() => { 
+  useEffect(() => {
     if (viewMode === 'history') loadHistory();
-    if (viewMode === 'stats') loadStatistics();
+    if (viewMode === 'stats' || viewMode === 'river') loadStatistics();
   }, [viewMode]);
 
   return (
     <div className="min-h-screen selection:bg-biotech-accent selection:text-biotech-blue flex flex-col">
       {/* Header */}
-      <header className="p-8 flex flex-col lg:flex-row lg:items-center justify-between gap-8 max-w-screen-2xl mx-auto w-full">
+      <header className="p-4 flex flex-col lg:flex-row lg:items-center justify-between gap-4 max-w-screen-2xl mx-auto w-full">
         <div>
           <h1 className="text-4xl font-black tracking-[ -0.05em] flex items-center gap-3">
             <span className="bg-biotech-accent text-biotech-blue px-2 py-0.5 rounded italic">BIOTERIO</span>
@@ -271,7 +277,21 @@ export default function BioterioApp() {
             Statistics
           </button>
 
-          <button 
+          <button
+            onClick={() => setViewMode(viewMode === 'river' ? 'grid' : 'river')}
+            className={`
+              flex items-center gap-2 px-6 py-3 rounded-xl text-xs font-black uppercase tracking-widest transition-all
+              ${viewMode === 'river'
+                ? 'bg-biotech-accent text-biotech-blue shadow-[0_0_20px_rgba(0,229,255,0.3)]'
+                : 'bg-white/5 text-white/40 hover:text-white border border-transparent'
+              }
+            `}
+          >
+            <Waves size={16} />
+            Age River
+          </button>
+
+          <button
             onClick={() => setViewMode(viewMode === 'history' ? 'grid' : 'history')}
             className={`
               flex items-center gap-2 px-6 py-3 rounded-xl text-xs font-black uppercase tracking-widest transition-all
@@ -308,6 +328,9 @@ export default function BioterioApp() {
             onClick={() => {
               setBreedingData({ type: 'Pair', animalIds: [], targetCageId: null });
               setBreedingStep(1);
+              setBreedingRackId(selectedRackId);
+              // Refresh occupancy of every rack so the target-cage picker is current
+              fetchRacks().then(setRacks).catch(err => console.error('Error loading racks:', err));
               setShowBreedingWizard(true);
             }}
             className="flex items-center gap-2 px-6 py-3 bg-pink-500/10 text-pink-400 hover:bg-pink-500 hover:text-white rounded-xl text-xs font-black uppercase tracking-widest transition-all border border-pink-500/20 shadow-[0_0_20px_rgba(236,72,153,0.1)] group"
@@ -340,18 +363,18 @@ export default function BioterioApp() {
       )}
 
       {/* Main Grid Area */}
-      <main className="flex-1 px-8 pb-8 max-w-screen-2xl mx-auto w-full">
+      <main className="flex-1 px-4 pb-4 max-w-screen-2xl mx-auto w-full">
         {loading ? (
           <div className="flex flex-col items-center justify-center h-[60vh] animate-pulse-soft">
             <RefreshCw className="animate-spin text-biotech-accent mb-6" size={48} />
             <span className="font-mono text-xs tracking-[0.5em] text-white/30 uppercase italic">Processing neural link...</span>
           </div>
         ) : viewMode === 'grid' ? (
-          <div className="glass rounded-[3rem] p-12 relative overflow-hidden">
+          <div className="glass rounded-[2rem] p-6 relative overflow-hidden">
             {/* Background elements */}
             <div className="absolute top-0 right-0 w-[500px] h-[500px] bg-biotech-accent/5 blur-[120px] rounded-full -mr-64 -mt-64 pointer-events-none"></div>
             
-            <div className="flex flex-col md:flex-row md:items-center justify-between mb-12 gap-8">
+            <div className="flex flex-col md:flex-row md:items-center justify-between mb-4 gap-4">
               <div className="flex items-center gap-4">
                 <div className="w-12 h-12 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center text-biotech-accent shadow-inner">
                   <Database size={24} />
@@ -407,7 +430,7 @@ export default function BioterioApp() {
             </div>
 
             {/* Grid 10x7 */}
-            <div className="grid grid-cols-7 gap-4 perspective-1000">
+            <div className="grid grid-cols-7 gap-1.5 perspective-1000">
               {rackData?.cages.sort((a,b) => (a.row - b.row) || (a.column - b.column)).map(cage => {
                 const hasAnimals = cage.animals?.length > 0;
                 const allAlive = cage.animals?.every(a => a.status === 'Vivo');
@@ -415,7 +438,14 @@ export default function BioterioApp() {
                 return (
                   <button
                     key={cage.id}
+                    draggable={!isMergeMode}
+                    onDragStart={() => setDraggedCage(cage)}
+                    onDragEnd={() => { setDraggedCage(null); setDragOverCage(null); }}
+                    onDragOver={e => { e.preventDefault(); setDragOverCage(cage.id); }}
+                    onDragLeave={() => setDragOverCage(null)}
+                    onDrop={e => { e.preventDefault(); handleDrop(cage); }}
                     onClick={() => {
+                      if (draggedCage) return;
                       if (isMergeMode) {
                         handleMergeConfirm(cage);
                       } else {
@@ -424,11 +454,15 @@ export default function BioterioApp() {
                     }}
                     className={`
                       aspect-square rounded-2xl border transition-all duration-300 group relative flex flex-col items-center justify-center overflow-hidden
-                      ${cage.is_breeding_pair 
-                        ? 'bg-pink-500/10 border-pink-500/50 hover:border-pink-500 active:scale-95 shadow-[0_0_20px_rgba(236,72,153,0.1)]'
-                        : hasAnimals 
-                          ? 'bg-white/5 border-white/20 hover:border-biotech-accent hover:bg-white/10 active:scale-95' 
-                          : 'bg-black/20 border-white/5 opacity-50 cursor-default shadow-inner'
+                      ${dragOverCage === cage.id && draggedCage?.id !== cage.id
+                        ? 'border-biotech-accent bg-biotech-accent/10 scale-105'
+                        : draggedCage?.id === cage.id
+                          ? 'opacity-40 scale-95'
+                          : cage.is_breeding_pair
+                            ? 'bg-pink-500/10 border-pink-500/50 hover:border-pink-500 active:scale-95 shadow-[0_0_20px_rgba(236,72,153,0.1)]'
+                            : hasAnimals
+                              ? 'bg-white/5 border-white/20 hover:border-biotech-accent hover:bg-white/10 active:scale-95'
+                              : 'bg-black/20 border-white/5 opacity-50 shadow-inner'
                       }
                     `}
                   >
@@ -437,10 +471,13 @@ export default function BioterioApp() {
                       <div className={`absolute inset-0 transition-colors duration-500 ${cage.is_breeding_pair ? 'bg-pink-500/0 group-hover:bg-pink-500/10' : 'bg-biotech-accent/0 group-hover:bg-biotech-accent/5'}`}></div>
                     )}
                     
-                    <span className={`text-[10px] font-mono font-black transition-colors ${cage.is_breeding_pair ? 'text-pink-400/40 group-hover:text-pink-400' : 'text-white/20 group-hover:text-biotech-accent'}`}>
-                      {cage.display_id}
-                    </span>
-                    
+                    {/* Número correlativo: solo si tiene animales */}
+                    {(hasAnimals || cage.is_breeding_pair) && cage.cage_number != null && (
+                      <span className={`text-sm font-mono font-black transition-colors ${cage.is_breeding_pair ? 'text-pink-400/40 group-hover:text-pink-400' : 'text-white/20 group-hover:text-biotech-accent'}`}>
+                        #{cage.cage_number}
+                      </span>
+                    )}
+
                     {hasAnimals && (
                       <div className={`
                         absolute top-3 right-3 w-3 h-3 rounded-full
@@ -449,8 +486,15 @@ export default function BioterioApp() {
                     )}
 
                     {(hasAnimals || cage.is_breeding_pair) && (
-                      <span className={`text-xs font-black group-hover:text-white mt-1 ${cage.is_breeding_pair ? 'text-pink-400/60' : 'text-white/40'}`}>
-                        {cage.animals?.length || 0}
+                      <span className={`text-sm font-black group-hover:text-white mt-0.5 ${cage.is_breeding_pair ? 'text-pink-400/60' : 'text-white/40'}`}>
+                        {cage.animals?.length || 0} anim.
+                      </span>
+                    )}
+
+                    {/* Posición física: siempre visible si hay animales */}
+                    {(hasAnimals || cage.is_breeding_pair) && (
+                      <span className={`text-[11px] font-mono mt-0.5 transition-colors ${cage.is_breeding_pair ? 'text-pink-400/30 group-hover:text-pink-300/60' : 'text-white/15 group-hover:text-white/40'}`}>
+                        {String.fromCharCode(64 + cage.column)}{cage.row}
                       </span>
                     )}
                   </button>
@@ -458,6 +502,8 @@ export default function BioterioApp() {
               })}
             </div>
           </div>
+        ) : viewMode === 'river' ? (
+          <AgeRiverView data={statsData} />
         ) : viewMode === 'history' ? (
           /* History View */
           <div className="glass rounded-[3rem] p-12 animate-in slide-in-from-bottom-8 duration-500 min-h-[60vh]">
@@ -475,19 +521,21 @@ export default function BioterioApp() {
                 <table className="w-full text-left border-separate border-spacing-y-2">
                   <thead>
                     <tr className="text-white/30 text-[10px] uppercase tracking-widest font-black">
-                      <th className="px-6 py-4">ANIMAL ID</th>
-                      <th className="px-6 py-4">STATUS</th>
-                      <th className="px-6 py-4">REASON</th>
-                      <th className="px-6 py-4">DOB</th>
-                      <th className="px-6 py-4">MARK</th>
-                      <th className="px-6 py-4">GENOTYPE</th>
-                      <th className="px-6 py-4">AGE</th>
+                      <th className="px-6 py-4">Marca / ID</th>
+                      <th className="px-6 py-4">Estado</th>
+                      <th className="px-6 py-4">Razón</th>
+                      <th className="px-6 py-4">Nac.</th>
+                      <th className="px-6 py-4">Genotipo</th>
+                      <th className="px-6 py-4">Edad</th>
                     </tr>
                   </thead>
                   <tbody>
                     {historyData.map((animal) => (
                       <tr key={animal.id} className="bg-white/5 border-l-4 border-red-500/50 hover:bg-white/10 transition-colors">
-                        <td className="px-6 py-4 font-mono font-bold">{animal.id}</td>
+                        <td className="px-6 py-4 font-mono font-bold">
+                          <span className="text-white">{animal.mark}</span>
+                          <span className="text-white/30 text-[10px] ml-2">#{animal.id}</span>
+                        </td>
                         <td className="px-6 py-4">
                           <span className="px-2 py-0.5 rounded text-[10px] font-black uppercase border border-red-500/30 text-red-400 bg-red-500/10">
                             {animal.status}
@@ -495,7 +543,6 @@ export default function BioterioApp() {
                         </td>
                         <td className="px-6 py-4 text-sm italic text-white/80">{animal.elimination_reason || 'N/A'}</td>
                         <td className="px-6 py-4 text-xs font-mono text-white/40">{animal.dob}</td>
-                        <td className="px-6 py-4 text-xs font-mono text-white/40">{animal.mark}</td>
                         <td className="px-6 py-4 text-sm text-white/60">{animal.genotype}</td>
                         <td className="px-6 py-4 text-xs font-mono text-biotech-accent font-bold">{animal.age_display}</td>
                       </tr>
@@ -531,10 +578,10 @@ export default function BioterioApp() {
           <div className="glass w-full max-w-xl rounded-[2.5rem] overflow-hidden border-white/20 animate-in fade-in zoom-in duration-300">
             <div className="p-8 border-b border-white/10 bg-white/5 flex items-center justify-between">
               <h2 className="text-2xl font-black tracking-tighter text-biotech-accent italic">
-                {isEditing ? 'MODIFY EXPERIMENT SUBJECT' : 'ADD NEW EXPERIMENT SUBJECT'}
+                {isEditing ? 'EDITAR ANIMAL' : 'REGISTRAR ANIMAL'}
               </h2>
-              <button 
-                onClick={() => { setShowAddModal(false); setIsEditing(false); setOriginalId(null); }} 
+              <button
+                onClick={() => { setShowAddModal(false); setIsEditing(false); setEditingAnimalId(null); setCageSearch(''); }}
                 className="p-2 hover:bg-white/10 rounded-full"
               >
                 <X size={20} />
@@ -542,17 +589,56 @@ export default function BioterioApp() {
             </div>
             
             <form onSubmit={handleAddAnimal} className="p-8 grid grid-cols-2 gap-6">
-              <div className="flex flex-col gap-2">
-                <label className="text-[10px] font-black uppercase tracking-widest text-white/40 ml-1">Rack Number (3-5)</label>
-                <input required type="number" min="3" max="5" value={newAnimal.rack_id} onChange={e => setNewAnimal({...newAnimal, rack_id: e.target.value})} className="bg-white/5 border border-white/10 rounded-xl px-4 py-3 outline-none focus:border-biotech-accent transition-colors font-mono" />
-              </div>
-              <div className="flex flex-col gap-2">
-                <label className="text-[10px] font-black uppercase tracking-widest text-white/40 ml-1">Cage ID (1-70)</label>
-                <input required type="number" min="1" max="70" value={newAnimal.cage_num} onChange={e => setNewAnimal({...newAnimal, cage_num: e.target.value})} className="bg-white/5 border border-white/10 rounded-xl px-4 py-3 outline-none focus:border-biotech-accent transition-colors font-mono" />
-              </div>
-              <div className="flex flex-col gap-2">
-                <label className="text-[10px] font-black uppercase tracking-widest text-white/40 ml-1">Animal ID</label>
-                <input required placeholder="MOUSE-XXX" value={newAnimal.id} onChange={e => setNewAnimal({...newAnimal, id: e.target.value})} className="bg-white/5 border border-white/10 rounded-xl px-4 py-3 outline-none focus:border-biotech-accent transition-colors font-mono" />
+              {/* Cage selector */}
+              <div className="col-span-2 flex flex-col gap-2">
+                <label className="text-[10px] font-black uppercase tracking-widest text-white/40 ml-1">
+                  Jaula <span className="text-biotech-accent">*</span>
+                </label>
+                {(() => {
+                  const allCages = racks.flatMap(r => r.cages).filter(c => c.cage_number != null);
+                  const selectedCageObj = allCages.find(c => c.id === newAnimal.cage_id);
+                  const rackOf = (c) => racks.find(r => r.cages.some(rc => rc.id === c.id));
+                  const filtered = allCages.filter(c => {
+                    const s = cageSearch.toLowerCase();
+                    return !s || String(c.cage_number).includes(s) ||
+                      `${String.fromCharCode(64 + c.column)}${c.row}`.toLowerCase().includes(s) ||
+                      (rackOf(c)?.name || '').toLowerCase().includes(s);
+                  });
+                  return (
+                    <div className="relative">
+                      <input
+                        type="text"
+                        placeholder={selectedCageObj
+                          ? `Jaula #${selectedCageObj.cage_number} — ${String.fromCharCode(64 + selectedCageObj.column)}${selectedCageObj.row} (${rackOf(selectedCageObj)?.name ?? ''})`
+                          : 'Buscar por nº jaula o posición...'}
+                        value={cageSearch}
+                        onChange={e => { setCageSearch(e.target.value); setNewAnimal({...newAnimal, cage_id: null}); }}
+                        className={`w-full bg-white/5 border rounded-xl px-4 py-3 outline-none transition-colors font-mono text-sm ${newAnimal.cage_id ? 'border-biotech-accent text-biotech-accent' : 'border-white/10 text-white'} focus:border-biotech-accent`}
+                      />
+                      {cageSearch && !newAnimal.cage_id && (
+                        <div className="absolute z-10 top-full mt-1 w-full bg-[#0a0f1a] border border-white/10 rounded-xl overflow-hidden max-h-48 overflow-y-auto shadow-2xl">
+                          {filtered.length === 0 && (
+                            <div className="px-4 py-3 text-xs text-white/20 font-mono">Sin resultados</div>
+                          )}
+                          {filtered.map(c => (
+                            <button
+                              key={c.id}
+                              type="button"
+                              onClick={() => { setNewAnimal({...newAnimal, cage_id: c.id}); setCageSearch(''); }}
+                              className="w-full flex items-center justify-between px-4 py-2.5 hover:bg-biotech-accent/10 transition-colors text-left"
+                            >
+                              <span className="text-sm font-black text-biotech-accent">#{c.cage_number}</span>
+                              <span className="text-xs font-mono text-white/40">
+                                {String.fromCharCode(64 + c.column)}{c.row} — {rackOf(c)?.name ?? ''}
+                              </span>
+                              <span className="text-[10px] text-white/20">{c.animals?.length ?? 0} anim.</span>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
               </div>
               <div className="flex flex-col gap-2">
                 <label className="text-[10px] font-black uppercase tracking-widest text-white/40 ml-1">Sex</label>
@@ -566,8 +652,8 @@ export default function BioterioApp() {
                 <input required type="date" value={newAnimal.dob} onChange={e => setNewAnimal({...newAnimal, dob: e.target.value})} className="bg-white/5 border border-white/10 rounded-xl px-4 py-3 outline-none focus:border-biotech-accent transition-colors font-mono" />
               </div>
               <div className="flex flex-col gap-2">
-                <label className="text-[10px] font-black uppercase tracking-widest text-white/40 ml-1">Mark</label>
-                <input placeholder="R-EAR" value={newAnimal.mark} onChange={e => setNewAnimal({...newAnimal, mark: e.target.value})} className="bg-white/5 border border-white/10 rounded-xl px-4 py-3 outline-none focus:border-biotech-accent transition-colors font-mono" />
+                <label className="text-[10px] font-black uppercase tracking-widest text-white/40 ml-1">Marca de Oreja <span className="text-biotech-accent">*</span></label>
+                <input required placeholder="Ej: OD, OI, ambas" value={newAnimal.mark} onChange={e => setNewAnimal({...newAnimal, mark: e.target.value})} className="bg-white/5 border border-white/10 rounded-xl px-4 py-3 outline-none focus:border-biotech-accent transition-colors font-mono" />
               </div>
               <div className="col-span-2 flex flex-col gap-2">
                 <label className="text-[10px] font-black uppercase tracking-widest text-white/40 ml-1">Genotype</label>
@@ -649,7 +735,7 @@ export default function BioterioApp() {
                   <div className="relative">
                     <input 
                       type="text" 
-                      placeholder="SEARCH BY ANIMAL ID OR GENOTYPE..."
+                      placeholder="BUSCAR POR ID, MARCA, GENOTIPO O Nº DE JAULA (#12)..."
                       value={breedingSearch}
                       onChange={(e) => setBreedingSearch(e.target.value)}
                       className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-xs font-mono text-white outline-none focus:border-pink-500 transition-all"
@@ -657,13 +743,27 @@ export default function BioterioApp() {
                   </div>
 
                   <div className="grid grid-cols-1 gap-2 max-h-[40vh] overflow-y-auto pr-2 custom-scrollbar">
-                    {racks.flatMap(r => r.cages).flatMap(c => c.animals)
-                      .filter(a => a.status === 'Vivo')
-                      .filter(a => 
-                        a.id.toLowerCase().includes(breedingSearch.toLowerCase()) || 
-                        a.genotype.toLowerCase().includes(breedingSearch.toLowerCase())
-                      )
-                      .map(animal => {
+                    {(() => {
+                      const q = breedingSearch.trim().toLowerCase();
+                      // "#12", "jaula 12" or "j12" search only by cage; a bare term also matches the cage exactly
+                      const cageQuery = q.replace(/^(#|jaula\s*|j)/, '').trim();
+                      const cageOnly = cageQuery !== q;
+                      const cageMatches = (c) => cageQuery !== '' && String(c.display_id).toLowerCase() === cageQuery;
+                      const rows = racks.flatMap(r => r.cages).flatMap(c => (c.animals || []).map(a => ({ a, c })))
+                        .filter(({ a }) => a.status === 'Vivo')
+                        .filter(({ a, c }) => {
+                          if (!q) return true;
+                          if (cageOnly) return cageMatches(c);
+                          return cageMatches(c) ||
+                            String(a.id).includes(q) ||
+                            (a.mark || '').toLowerCase().includes(q) ||
+                            a.genotype.toLowerCase().includes(q);
+                        })
+                        // Animals living in the searched cage go first
+                        .sort((x, y) => Number(cageMatches(y.c)) - Number(cageMatches(x.c)));
+                      return rows;
+                    })()
+                      .map(({ a: animal, c: cage }) => {
                         const isSelected = breedingData.animalIds.includes(animal.id);
                         return (
                           <button
@@ -681,9 +781,10 @@ export default function BioterioApp() {
                               <span className={`px-2 py-0.5 rounded text-[10px] font-black ${animal.sex === 'M' ? 'bg-blue-500/20 text-blue-400' : 'bg-pink-500/20 text-pink-400'}`}>
                                 {animal.sex}
                               </span>
-                              <span className="font-mono text-sm text-white/80">{animal.id}</span>
-                              <span className="text-[10px] text-white/20 font-mono uppercase tracking-tighter">
-                                {animal.genotype} • {racks.find(r => r.cages.some(c => c.id === animal.cage_id))?.cages.find(c => c.id === animal.cage_id)?.display_id}
+                              <span className="font-mono text-sm text-white/80">#{animal.id} — {animal.mark}</span>
+                              <span className="text-[10px] text-white/20 font-mono uppercase tracking-tighter">{animal.genotype}</span>
+                              <span className="px-2 py-0.5 rounded bg-white/10 text-[10px] font-mono font-black text-white/60">
+                                Jaula {cage.cage_number != null ? `#${cage.cage_number}` : cage.display_id}
                               </span>
                             </div>
                             {isSelected && <div className="w-2 h-2 rounded-full bg-pink-500 shadow-[0_0_10px_rgba(236,72,153,1)]"></div>}
@@ -698,18 +799,54 @@ export default function BioterioApp() {
               {breedingStep === 3 && (
                 <div className="space-y-6">
                   <h3 className="text-lg font-bold text-white/80">Select Target Cage</h3>
-                  <div className="grid grid-cols-7 gap-2">
-                    {rackData?.cages.map(cage => (
-                      <button
-                        key={cage.id}
-                        onClick={() => setBreedingData({...breedingData, targetCageId: cage.id})}
-                        className={`aspect-square rounded-lg border flex flex-col items-center justify-center transition-all ${breedingData.targetCageId === cage.id ? 'border-pink-500 bg-pink-500/20' : cage.animals?.length > 0 ? 'opacity-20 cursor-not-allowed' : 'border-white/10 bg-white/5 hover:border-white/20'}`}
-                        disabled={cage.animals?.length > 0 && breedingData.targetCageId !== cage.id}
-                      >
-                        <span className="text-[8px] font-mono font-black text-white/30">{cage.display_id}</span>
-                      </button>
-                    ))}
-                  </div>
+                  {(() => {
+                    const rack = racks.find(r => r.id === breedingRackId) || racks[0];
+                    const cages = [...(rack?.cages || [])].sort((a, b) => (a.row - b.row) || (a.column - b.column));
+                    const nCols = Math.max(1, ...cages.map(c => c.column));
+                    const target = racks.flatMap(r => r.cages.map(c => ({ c, r }))).find(({ c }) => c.id === breedingData.targetCageId);
+                    return (
+                      <>
+                        {/* 1. Rack */}
+                        <div className="flex flex-wrap gap-2">
+                          {racks.map(r => (
+                            <button
+                              key={r.id}
+                              type="button"
+                              onClick={() => setBreedingRackId(r.id)}
+                              className={`px-4 py-2 rounded-xl text-xs font-black uppercase tracking-widest border transition-all ${r.id === rack?.id ? 'border-pink-500 bg-pink-500/20 text-pink-300' : 'border-white/10 bg-white/5 text-white/40 hover:bg-white/10'}`}
+                            >
+                              {r.name}
+                            </button>
+                          ))}
+                        </div>
+                        {/* 2. Position in the rack */}
+                        <div className="grid gap-2" style={{ gridTemplateColumns: `repeat(${nCols}, minmax(0, 1fr))` }}>
+                          {cages.map(cage => {
+                            const occupied = cage.animals?.length > 0;
+                            const selected = breedingData.targetCageId === cage.id;
+                            return (
+                              <button
+                                key={cage.id}
+                                type="button"
+                                onClick={() => setBreedingData({...breedingData, targetCageId: cage.id})}
+                                title={occupied ? `${cage.animals.length} animales` : 'Vacía'}
+                                className={`h-11 rounded-lg border flex flex-col items-center justify-center transition-all ${selected ? 'border-pink-500 bg-pink-500/20' : occupied ? 'opacity-20 cursor-not-allowed border-white/5' : 'border-white/10 bg-white/5 hover:border-pink-400/60'}`}
+                                disabled={occupied && !selected}
+                              >
+                                <span className="text-[9px] font-mono font-black text-white/60">{String.fromCharCode(64 + cage.column)}{cage.row}</span>
+                                {cage.cage_number != null && <span className="text-[8px] font-mono text-white/30">#{cage.cage_number}</span>}
+                              </button>
+                            );
+                          })}
+                        </div>
+                        <p className="text-xs font-mono text-white/40">
+                          {target
+                            ? <>Destino: <span className="text-pink-300 font-black">{target.r.name} · {String.fromCharCode(64 + target.c.column)}{target.c.row}{target.c.cage_number != null ? ` (#${target.c.cage_number})` : ''}</span></>
+                            : 'Elige un rack y luego una posición vacía.'}
+                        </p>
+                      </>
+                    );
+                  })()}
                 </div>
               )}
             </div>

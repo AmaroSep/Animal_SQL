@@ -1,13 +1,26 @@
 import React, { useState } from 'react';
-import { X, Skull, Trash2, Plus, Pencil, HeartOff, RefreshCw } from 'lucide-react';
-import { updateAnimalStatus, endBreedingSession } from '../../../services/api';
+import { X, Skull, Trash2, Plus, Pencil, HeartOff, RefreshCw, Hash } from 'lucide-react';
+import { updateAnimalStatus, endBreedingSession, updateCageNumber } from '../../../services/api';
 
 export default function CageModal({ cage, onClose, onUpdate, onAddAnimal, onEditAnimal, onMergeStart }) {
   const [showEndDialog, setShowEndDialog] = useState(false);
-  const [endOption, setEndOption] = useState('Home'); // 'Home' or 'New'
+  const [endOption, setEndOption] = useState('Home');
   const [newCageId, setNewCageId] = useState('');
+  const [cageNumberInput, setCageNumberInput] = useState('');
+  const [editingCageNumber, setEditingCageNumber] = useState(false);
 
   if (!cage) return null;
+
+  const handleSaveCageNumber = async () => {
+    const num = cageNumberInput.trim() === '' ? null : parseInt(cageNumberInput);
+    try {
+      await updateCageNumber(cage.id, num);
+      setEditingCageNumber(false);
+      onUpdate();
+    } catch (err) {
+      alert('Error al guardar número de jaula: ' + err.message);
+    }
+  };
 
   const handleAction = async (animalId, newStatus) => {
     const reason = window.prompt(`Indique la razón para marcar como ${newStatus}:`);
@@ -63,9 +76,32 @@ export default function CageModal({ cage, onClose, onUpdate, onAddAnimal, onEdit
           <div className="flex items-center gap-6">
             <div>
               <h2 className="text-2xl font-black tracking-tighter text-biotech-accent uppercase">
-                CAGE {cage.display_id}: ANIMAL LIST
+                JAULA {cage.display_id}: LISTA DE ANIMALES
               </h2>
-              <p className="text-white/40 text-xs font-mono tracking-widest mt-1">BIOTERIO SECURE ACCESS</p>
+              <div className="flex items-center gap-2 mt-1">
+                <Hash size={12} className="text-white/30" />
+                {editingCageNumber ? (
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="number"
+                      placeholder="Nº correlativo"
+                      value={cageNumberInput}
+                      onChange={e => setCageNumberInput(e.target.value)}
+                      className="bg-black/40 border border-biotech-accent/50 rounded-lg px-2 py-1 text-xs font-mono text-white outline-none w-28"
+                      autoFocus
+                    />
+                    <button onClick={handleSaveCageNumber} className="text-[9px] font-black uppercase tracking-widest text-biotech-accent hover:text-white transition-colors">Guardar</button>
+                    <button onClick={() => setEditingCageNumber(false)} className="text-[9px] font-black uppercase tracking-widest text-white/20 hover:text-white transition-colors">Cancelar</button>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => { setCageNumberInput(cage.cage_number != null ? String(cage.cage_number) : ''); setEditingCageNumber(true); }}
+                    className="text-[9px] font-mono text-white/30 hover:text-biotech-accent transition-colors uppercase tracking-widest"
+                  >
+                    {cage.cage_number != null ? `Nº correlativo: ${cage.cage_number}` : '+ Asignar Nº correlativo'}
+                  </button>
+                )}
+              </div>
             </div>
             
             {/* Breeding Pair Toggle */}
@@ -181,25 +217,27 @@ export default function CageModal({ cage, onClose, onUpdate, onAddAnimal, onEdit
             <table className="w-full text-left border-separate border-spacing-y-2">
               <thead>
                 <tr className="text-white/30 text-[10px] uppercase tracking-widest font-black">
-                  <th className="px-4 py-2">ANIMAL ID</th>
-                  <th className="px-4 py-2">SEX</th>
-                  <th className="px-4 py-2">DOB</th>
-                  <th className="px-4 py-2">AGE</th>
-                  <th className="px-4 py-2">MARK</th>
-                  <th className="px-4 py-2">GENOTYPE</th>
-                  <th className="px-4 py-2">STATUS</th>
-                  <th className="px-4 py-2 text-right">ACTIONS</th>
+                  <th className="px-4 py-2">Marca / ID</th>
+                  <th className="px-4 py-2">Sexo</th>
+                  <th className="px-4 py-2">Nac.</th>
+                  <th className="px-4 py-2">Edad</th>
+                  <th className="px-4 py-2">Genotipo</th>
+                  <th className="px-4 py-2">Estado</th>
+                  <th className="px-4 py-2 text-right">Acciones</th>
                 </tr>
               </thead>
               <tbody>
                 {cage.animals?.map((animal) => (
-                  <tr 
-                    key={animal.id} 
+                  <tr
+                    key={animal.id}
                     className={`bg-white/5 group hover:bg-white/10 transition-colors border-l-4 ${
                       animal.status === 'Vivo' ? 'border-green-500' : 'border-red-500 opacity-60'
                     }`}
                   >
-                    <td className="px-4 py-4 font-mono font-bold text-sm tracking-tight">{animal.id}</td>
+                    <td className="px-4 py-4 font-mono font-bold text-sm tracking-tight">
+                      <span className="text-biotech-accent">{animal.mark}</span>
+                      <span className="text-white/20 text-[10px] ml-2">#{animal.id}</span>
+                    </td>
                     <td className="px-4 py-4">
                       <span className={`px-2 py-0.5 rounded text-[10px] font-black ${
                         animal.sex === 'M' ? 'bg-blue-500/20 text-blue-400' : 'bg-pink-500/20 text-pink-400'
@@ -209,7 +247,6 @@ export default function CageModal({ cage, onClose, onUpdate, onAddAnimal, onEdit
                     </td>
                     <td className="px-4 py-4 text-xs font-mono text-white/60">{animal.dob}</td>
                     <td className="px-4 py-4 font-bold text-biotech-accent">{animal.age_display}</td>
-                    <td className="px-4 py-4 text-xs font-mono text-white/60">{animal.mark}</td>
                     <td className="px-4 py-4 italic text-sm text-white/80">{animal.genotype}</td>
                     <td className="px-4 py-4">
                       <span className={`px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-widest border ${
