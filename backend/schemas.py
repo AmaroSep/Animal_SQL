@@ -318,3 +318,76 @@ class NCalcResult(BaseModel):
     cohen_d: float
     formula_used: str
     justification_text: str
+
+# ── EM Grids ───────────────────────────────────────────────────────────────
+
+class EMGridBase(BaseModel):
+    position: str
+    sample: str
+    grid_type: Optional[str] = None
+    sample_volume_ul: Optional[float] = None
+    sample_time_s: Optional[float] = None
+    stain_type: Optional[str] = None
+    stain_time_s: Optional[float] = None
+    prep_date: Optional[date] = None
+    status: models.EMGridStatus = EMGridStatus.STORED
+    notes: Optional[str] = None
+
+class EMGridCreate(EMGridBase):
+    box_id: int
+
+class EMGridUpdate(BaseModel):
+    box_id: Optional[int] = None
+    position: Optional[str] = None
+    sample: Optional[str] = None
+    grid_type: Optional[str] = None
+    sample_volume_ul: Optional[float] = None
+    sample_time_s: Optional[float] = None
+    stain_type: Optional[str] = None
+    stain_time_s: Optional[float] = None
+    prep_date: Optional[date] = None
+    status: Optional[models.EMGridStatus] = None
+    notes: Optional[str] = None
+
+class EMGrid(EMGridBase):
+    id: int
+    box_id: int
+    box_number: Optional[str] = None
+    created_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+class EMGridBoxBase(BaseModel):
+    box_number: str
+    box_type: str
+    row_labels: str
+    columns: int
+    lot: Optional[str] = None
+    default_grid_type: Optional[str] = None
+    location: Optional[str] = None
+    notes: Optional[str] = None
+
+class EMGridBoxCreate(EMGridBoxBase):
+    pass
+
+class EMGridBoxUpdate(BaseModel):
+    box_number: Optional[str] = None
+    box_type: Optional[str] = None
+    row_labels: Optional[str] = None
+    columns: Optional[int] = None
+    lot: Optional[str] = None
+    default_grid_type: Optional[str] = None
+    location: Optional[str] = None
+    notes: Optional[str] = None
+
+class EMGridBoxSummary(EMGridBoxBase):
+    id: int
+    capacity: int
+    occupied: int
+
+    class Config:
+        from_attributes = True
+
+class EMGridBoxDetail(EMGridBoxSummary):
+    grids: List[EMGrid] = []

@@ -1,5 +1,6 @@
 from sqlalchemy import Column, Integer, String, Date, DateTime, Float, ForeignKey, Boolean, Text, Enum as SqlEnum
 from sqlalchemy.orm import relationship
+from datetime import datetime
 from sqlalchemy.sql import func
 import enum
 from database import Base
@@ -219,3 +220,51 @@ class Extraction(Base):
 
     animal = relationship("Animal", back_populates="extractions")
     experiment = relationship("Experiment", back_populates="extractions")
+
+
+# ── EM Grids inventory ─────────────────────────────────────────────────────
+
+class EMGridStatus(str, enum.Enum):
+    # STORED / IMAGED grids physically occupy their slot; USED / DISCARDED free it
+    # but stay in the database as history.
+    STORED = "Almacenada"
+    IMAGED = "Imageada"
+    USED = "Usada"
+    DISCARDED = "Descartada"
+
+
+class EMGridBox(Base):
+    __tablename__ = "em_grid_boxes"
+
+    id = Column(Integer, primary_key=True, index=True)
+    box_number = Column(String, unique=True, index=True, nullable=False)
+    box_type = Column(String, nullable=False)          # e.g. "Quantifoil", "EMS"
+    row_labels = Column(String, nullable=False)        # comma-separated, e.g. "A,B,C,D,E"
+    columns = Column(Integer, nullable=False)
+    lot = Column(String, nullable=True)
+    default_grid_type = Column(String, nullable=True)
+    location = Column(String, nullable=True)           # where the box is physically stored
+    notes = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    grids = relationship("EMGrid", back_populates="box", cascade="all, delete-orphan")
+
+
+class EMGrid(Base):
+    __tablename__ = "em_grids"
+
+    id = Column(Integer, primary_key=True, index=True)
+    box_id = Column(Integer, ForeignKey("em_grid_boxes.id", ondelete="CASCADE"), nullable=False)
+    position = Column(String, nullable=False)          # e.g. "C4"
+    sample = Column(String, nullable=False)
+    grid_type = Column(String, nullable=True)
+    sample_volume_ul = Column(Float, nullable=True)
+    sample_time_s = Column(Float, nullable=True)       # sample application time
+    stain_type = Column(String, nullable=True)
+    stain_time_s = Column(Float, nullable=True)        # stain incubation time
+    prep_date = Column(Date, nullable=True)
+    status = Column(SqlEnum(EMGridStatus), default=EMGridStatus.STORED)
+    notes = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    box = relationship("EMGridBox", back_populates="grids")

@@ -8,7 +8,7 @@ from fastapi.responses import StreamingResponse
 import io, csv, os
 import models, schemas, database
 from database import engine, get_db
-from routers import experiments, gels, extractions, responsibles
+from routers import experiments, gels, extractions, responsibles, em_grids
 from utils import calculate_age_display, calculate_age_months
 
 # Create tables
@@ -27,6 +27,7 @@ app.include_router(experiments.router)
 app.include_router(gels.router)
 app.include_router(extractions.router)
 app.include_router(responsibles.router)
+app.include_router(em_grids.router)
 
 app.add_middleware(
     CORSMiddleware,

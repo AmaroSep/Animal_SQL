@@ -115,3 +115,22 @@ export const fetchExtractions = ({ animalId, experimentId } = {}) => {
 export const createExtraction = (data) => request('/extractions', json('POST', data));
 export const updateExtraction = (id, data) => request(`/extractions/${id}`, json('PUT', data));
 export const deleteExtraction = (id) => request(`/extractions/${id}`, { method: 'DELETE' });
+
+// ── EM Grids ───────────────────────────────────────────────────────────────
+
+export const fetchEMBoxes = () => request('/em/boxes');
+export const fetchEMBox = (id) => request(`/em/boxes/${id}`);
+export const createEMBox = (data) => request('/em/boxes', json('POST', data));
+export const updateEMBox = (id, data) => request(`/em/boxes/${id}`, json('PUT', data));
+export const deleteEMBox = (id) => request(`/em/boxes/${id}`, { method: 'DELETE' });
+
+export const fetchEMGrids = ({ q, status } = {}) => {
+  const params = new URLSearchParams();
+  if (q) params.set('q', q);
+  if (status) params.set('status', status);
+  const qs = params.toString();
+  return request(`/em/grids${qs ? `?${qs}` : ''}`);
+};
+export const createEMGrid = (data) => request('/em/grids', json('POST', data));
+export const updateEMGrid = (id, data) => request(`/em/grids/${id}`, json('PUT', data));
+export const deleteEMGrid = (id) => request(`/em/grids/${id}`, { method: 'DELETE' });
