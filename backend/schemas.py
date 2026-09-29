@@ -321,16 +321,29 @@ class NCalcResult(BaseModel):
 
 # ── EM Grids ───────────────────────────────────────────────────────────────
 
+class EMGridStainStepIn(BaseModel):
+    wash_count: Optional[int] = None
+    wash_volume_ul: Optional[float] = None
+    stain_type: Optional[str] = None
+    stain_time_s: Optional[float] = None
+    drying_method: Optional[str] = None
+
+class EMGridStainStep(EMGridStainStepIn):
+    id: int
+    step_order: int
+
+    class Config:
+        from_attributes = True
+
 class EMGridBase(BaseModel):
     position: str
     sample: str
     grid_type: Optional[str] = None
     sample_volume_ul: Optional[float] = None
     sample_time_s: Optional[float] = None
-    stain_type: Optional[str] = None
-    stain_time_s: Optional[float] = None
+    stain_steps: List[EMGridStainStepIn] = []
     prep_date: Optional[date] = None
-    status: models.EMGridStatus = EMGridStatus.STORED
+    status: models.EMGridStatus = models.EMGridStatus.STORED
     notes: Optional[str] = None
 
 class EMGridCreate(EMGridBase):
@@ -343,13 +356,13 @@ class EMGridUpdate(BaseModel):
     grid_type: Optional[str] = None
     sample_volume_ul: Optional[float] = None
     sample_time_s: Optional[float] = None
-    stain_type: Optional[str] = None
-    stain_time_s: Optional[float] = None
+    stain_steps: Optional[List[EMGridStainStepIn]] = None
     prep_date: Optional[date] = None
     status: Optional[models.EMGridStatus] = None
     notes: Optional[str] = None
 
 class EMGrid(EMGridBase):
+    stain_steps: List[EMGridStainStep] = []
     id: int
     box_id: int
     box_number: Optional[str] = None

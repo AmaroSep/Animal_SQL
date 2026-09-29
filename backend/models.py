@@ -260,11 +260,29 @@ class EMGrid(Base):
     grid_type = Column(String, nullable=True)
     sample_volume_ul = Column(Float, nullable=True)
     sample_time_s = Column(Float, nullable=True)       # sample application time
-    stain_type = Column(String, nullable=True)
-    stain_time_s = Column(Float, nullable=True)        # stain incubation time
     prep_date = Column(Date, nullable=True)
     status = Column(SqlEnum(EMGridStatus), default=EMGridStatus.STORED)
     notes = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     box = relationship("EMGridBox", back_populates="grids")
+    stain_steps = relationship(
+        "EMGridStainStep", back_populates="grid",
+        order_by="EMGridStainStep.step_order", cascade="all, delete-orphan",
+    )
+
+
+class EMGridStainStep(Base):
+    """One staining round, in order: washes -> stain incubation -> drying."""
+    __tablename__ = "em_grid_stain_steps"
+
+    id = Column(Integer, primary_key=True, index=True)
+    grid_id = Column(Integer, ForeignKey("em_grids.id", ondelete="CASCADE"), nullable=False, index=True)
+    step_order = Column(Integer, nullable=False)
+    wash_count = Column(Integer, nullable=True)        # washes before this stain
+    wash_volume_ul = Column(Float, nullable=True)      # volume per wash
+    stain_type = Column(String, nullable=True)
+    stain_time_s = Column(Float, nullable=True)        # stain incubation time
+    drying_method = Column(String, nullable=True)      # after this stain
+
+    grid = relationship("EMGrid", back_populates="stain_steps")

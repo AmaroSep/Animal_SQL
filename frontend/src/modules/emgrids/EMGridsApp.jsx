@@ -6,11 +6,13 @@ import {
   fetchEMGrids, createEMGrid, updateEMGrid, deleteEMGrid,
 } from '../../services/api';
 import * as XLSX from 'xlsx';
+import { FIXED_LAYOUT_TYPES, getLayout, getPositions } from './boxLayouts';
 
-// Box layouts matching the physical boxes in use. Editable per box afterwards.
+// Defaults per box type. Quantifoil and EMS have a fixed physical layout
+// (boxLayouts.js); row_labels/columns only define "Personalizada" boxes.
 const BOX_PRESETS = {
   Quantifoil: {
-    row_labels: 'A,B,C,D,E,F,G,H,I,J',
+    row_labels: 'A,B,C,D,E,F,G,H,I,J,K,L,M,N,O,P,Q,R,S,T',
     columns: 10,
     default_grid_type: 'Quantifoil R2/1 + 2nm C, Cu 300',
   },
@@ -22,7 +24,9 @@ const BOX_PRESETS = {
   Personalizada: { row_labels: 'A,B,C,D', columns: 5, default_grid_type: '' },
 };
 
-const STAIN_SUGGESTIONS = ['Uranyl acetate 2%', 'Uranyl formate 0.75%', 'PTA 2%', 'Ammonium molybdate 2%', 'Nano-W', 'UA-Zero'];
+const STAIN_SUGGESTIONS = ['Uranyl acetate 2%', 'Uranyl formate 0.75%', 'PTA 2%', 'Ammonium molybdate 2%', 'Nano-W', 'UA-Zero', 'UranyLess'];
+
+const DRYING_SUGGESTIONS = ['Blotting con papel filtro', 'Blotting lateral', 'Secado al aire', 'Blotting + secado al aire', 'Aspiración'];
 
 const STATUSES = ['Almacenada', 'Imageada', 'Usada', 'Descartada'];
 const IN_BOX = ['Almacenada', 'Imageada'];
@@ -33,8 +37,6 @@ const STATUS_STYLE = {
   Usada: 'bg-white/5 text-white/40 border-white/10',
   Descartada: 'bg-red-500/10 text-red-300/70 border-red-500/20',
 };
-
-const rowsOf = (box) => box.row_labels.split(',').map((r) => r.trim()).filter(Boolean);
 
 const inputCls = 'w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white placeholder-white/20 focus:border-violet-400 focus:outline-none';
 const labelCls = 'block text-[10px] font-black uppercase tracking-widest text-white/40 mb-2';
@@ -51,7 +53,7 @@ function Field({ label, children }) {
 function Modal({ title, subtitle, onClose, children }) {
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
-      <div className="glass w-full max-w-2xl max-h-[92vh] flex flex-col rounded-3xl overflow-hidden border-white/20">
+      <div className="glass w-full max-w-3xl max-h-[92vh] flex flex-col rounded-3xl overflow-hidden border-white/20">
         <div className="flex items-center justify-between p-6 border-b border-white/10 bg-white/5 shrink-0">
           <div>
             <h2 className="text-xl font-black tracking-tighter text-violet-300 uppercase italic">{title}</h2>
@@ -77,8 +79,12 @@ function BoxModal({ box, onClose, onSaved }) {
   const set = (k) => (e) => setForm({ ...form, [k]: e.target.value });
 
   const applyPreset = (type) => {
-    setForm({ ...form, box_type: type, ...(box ? {} : BOX_PRESETS[type]) });
+    const { default_grid_type, ...layout } = BOX_PRESETS[type];
+    // Fixed layouts always take their rows/columns; the default grid type is only prefilled on new boxes
+    const keepLayout = box && !FIXED_LAYOUT_TYPES.includes(type);
+    setForm({ ...form, box_type: type, ...(keepLayout ? {} : layout), ...(box ? {} : { default_grid_type }) });
   };
+  const fixedLayout = FIXED_LAYOUT_TYPES.includes(form.box_type);
 
   const submit = async (e) => {
     e.preventDefault();
@@ -100,31 +106,41 @@ function BoxModal({ box, onClose, onSaved }) {
     }
   };
 
-  const capacity = form.row_labels.split(',').filter((r) => r.trim()).length * (parseInt(form.columns, 10) || 0);
+  const capacity = getPositions(form).length;
 
   return (
     <Modal title={box ? `Editar caja ${box.box_number}` : 'Nueva caja'} subtitle="Formato y datos de la caja" onClose={onClose}>
       <form onSubmit={submit} className="space-y-4">
         <div className="grid grid-cols-2 gap-4">
           <Field label="Nº de caja *">
-            <input required className={inputCls} value={form.box_number} onChange={set('box_number')} placeholder="295913" />
+            <input required className={inputCls} value={form.box_number} onChange={set('box_number')} placeholder="001" />
           </Field>
           <Field label="Tipo de caja">
             <select className={inputCls} value={form.box_type} onChange={(e) => applyPreset(e.target.value)}>
               {Object.keys(BOX_PRESETS).map((t) => <option key={t} value={t} className="bg-slate-900">{t}</option>)}
             </select>
           </Field>
-          <Field label="Filas (separadas por coma)">
-            <input required className={inputCls} value={form.row_labels} onChange={set('row_labels')} />
-          </Field>
-          <Field label="Columnas">
-            <input required type="number" min="1" className={inputCls} value={form.columns} onChange={set('columns')} />
-          </Field>
+          {fixedLayout ? (
+            <p className="col-span-2 text-xs font-mono text-white/40 -mt-1">
+              {form.box_type === 'Quantifoil'
+                ? 'Formato fijo: filas A–J y K–T, columnas 1–10 en diagonal (5 grids por fila).'
+                : 'Formato fijo: filas A–E, columnas 1–5 y 6–10.'}
+            </p>
+          ) : (
+            <>
+              <Field label="Filas (separadas por coma)">
+                <input required className={inputCls} value={form.row_labels} onChange={set('row_labels')} />
+              </Field>
+              <Field label="Columnas">
+                <input required type="number" min="1" className={inputCls} value={form.columns} onChange={set('columns')} />
+              </Field>
+            </>
+          )}
           <Field label="Tipo de grid por defecto">
             <input className={inputCls} value={form.default_grid_type || ''} onChange={set('default_grid_type')} />
           </Field>
-          <Field label="Lote">
-            <input className={inputCls} value={form.lot || ''} onChange={set('lot')} placeholder="251110" />
+          <Field label="Lote / Nº fabricante">
+            <input className={inputCls} value={form.lot || ''} onChange={set('lot')} placeholder="295913" />
           </Field>
           <Field label="Ubicación física">
             <input className={inputCls} value={form.location || ''} onChange={set('location')} placeholder="Desecador 1, repisa 2" />
@@ -144,6 +160,32 @@ function BoxModal({ box, onClose, onSaved }) {
   );
 }
 
+const fmt = (v, unit) => (v === null || v === undefined || v === '' ? '—' : `${v}${unit ? ` ${unit}` : ''}`);
+
+const has = (v) => v !== null && v !== undefined && v !== '';
+
+// One-line description of a staining step: "2× 20 µL lavado → UranyLess 60 s → Blotting"
+const describeStep = (st) => {
+  const parts = [];
+  if (has(st.wash_count) && Number(st.wash_count) > 0) {
+    parts.push(`${st.wash_count}× ${has(st.wash_volume_ul) ? `${st.wash_volume_ul} µL ` : ''}lavado`);
+  }
+  if (has(st.stain_type) || has(st.stain_time_s)) {
+    parts.push([st.stain_type, has(st.stain_time_s) ? `${st.stain_time_s} s` : null].filter(Boolean).join(' '));
+  }
+  if (has(st.drying_method)) parts.push(st.drying_method);
+  return parts.join(' → ');
+};
+
+// Stain sequence for tables/tooltips: "UranyLess 60 s + UA 2% 30 s"
+const stainSummary = (g) =>
+  (g.stain_steps || [])
+    .filter((st) => has(st.stain_type) || has(st.stain_time_s))
+    .map((st) => [st.stain_type, has(st.stain_time_s) ? `${st.stain_time_s} s` : null].filter(Boolean).join(' '))
+    .join(' + ');
+
+const emptyStep = () => ({ wash_count: '', wash_volume_ul: '', stain_type: '', stain_time_s: '', drying_method: '' });
+
 // ── Grid form ──────────────────────────────────────────────────────────────
 
 const emptyGrid = (box, position) => ({
@@ -153,22 +195,31 @@ const emptyGrid = (box, position) => ({
   grid_type: box.default_grid_type || '',
   sample_volume_ul: '',
   sample_time_s: '',
-  stain_type: '',
-  stain_time_s: '',
+  stain_steps: [emptyStep()],
   prep_date: new Date().toISOString().split('T')[0],
   status: 'Almacenada',
   notes: '',
 });
 
 function GridModal({ grid, box, boxes, position, suggestions, onClose, onSaved }) {
-  const [form, setForm] = useState(() =>
-    grid ? Object.fromEntries(Object.entries(grid).map(([k, v]) => [k, v ?? ''])) : emptyGrid(box, position)
-  );
+  const blanks = (obj) => Object.fromEntries(Object.entries(obj).map(([k, v]) => [k, v ?? '']));
+  const initialForm = () => {
+    if (!grid) return emptyGrid(box, position);
+    const steps = grid.stain_steps?.length ? grid.stain_steps : [emptyStep()];
+    return { ...blanks(grid), stain_steps: steps.map(blanks) };
+  };
+  const [form, setForm] = useState(initialForm);
+  // Existing grids open read-only; editing is an explicit step
+  const [editing, setEditing] = useState(!grid);
   const [error, setError] = useState(null);
   const set = (k) => (e) => setForm({ ...form, [k]: e.target.value });
+  const setStep = (i, k) => (e) =>
+    setForm({ ...form, stain_steps: form.stain_steps.map((st, j) => (j === i ? { ...st, [k]: e.target.value } : st)) });
+  const addStep = () => setForm({ ...form, stain_steps: [...form.stain_steps, emptyStep()] });
+  const removeStep = (i) => setForm({ ...form, stain_steps: form.stain_steps.filter((_, j) => j !== i) });
 
   const targetBox = boxes.find((b) => b.id === parseInt(form.box_id, 10)) || box;
-  const positions = targetBox ? rowsOf(targetBox).flatMap((r) => Array.from({ length: targetBox.columns }, (_, i) => `${r}${i + 1}`)) : [];
+  const positions = targetBox ? getPositions(targetBox) : [];
 
   const num = (v) => (v === '' || v === null ? null : parseFloat(v));
 
@@ -181,8 +232,13 @@ function GridModal({ grid, box, boxes, position, suggestions, onClose, onSaved }
       grid_type: form.grid_type || null,
       sample_volume_ul: num(form.sample_volume_ul),
       sample_time_s: num(form.sample_time_s),
-      stain_type: form.stain_type || null,
-      stain_time_s: num(form.stain_time_s),
+      stain_steps: form.stain_steps.map((st) => ({
+        wash_count: st.wash_count === '' ? null : parseInt(st.wash_count, 10),
+        wash_volume_ul: num(st.wash_volume_ul),
+        stain_type: st.stain_type || null,
+        stain_time_s: num(st.stain_time_s),
+        drying_method: st.drying_method || null,
+      })),
       prep_date: form.prep_date || null,
       status: form.status,
       notes: form.notes || null,
@@ -205,9 +261,87 @@ function GridModal({ grid, box, boxes, position, suggestions, onClose, onSaved }
     }
   };
 
+  const cancelEdit = () => {
+    if (!grid) return onClose();
+    setForm(initialForm());
+    setError(null);
+    setEditing(false);
+  };
+
+  if (!editing) {
+    const detail = [
+      ['Caja', `${grid.box_number}${box ? ` (${box.box_type})` : ''}`],
+      ['Posición', grid.position],
+      ['Fecha preparación', fmt(grid.prep_date)],
+      ['Tipo de grid', fmt(grid.grid_type)],
+      ['Volumen muestra', fmt(grid.sample_volume_ul, 'µL')],
+      ['Tiempo aplicación muestra', fmt(grid.sample_time_s, 's')],
+    ];
+    const steps = (grid.stain_steps || []).filter((st) => describeStep(st));
+    return (
+      <Modal title={`Grid ${grid.box_number} · ${grid.position}`} subtitle="Registro de preparación" onClose={onClose}>
+        <div className="space-y-5">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <span className={labelCls}>Muestra</span>
+              <p className="text-xl font-black tracking-tight">{grid.sample}</p>
+            </div>
+            <span className={`px-2 py-1 rounded-md border text-[10px] font-black uppercase ${STATUS_STYLE[grid.status]}`}>{grid.status}</span>
+          </div>
+          <dl className="grid grid-cols-2 md:grid-cols-3 gap-4">
+            {detail.map(([k, v]) => (
+              <div key={k} className="bg-white/5 border border-white/5 rounded-xl px-4 py-3">
+                <dt className={labelCls}>{k}</dt>
+                <dd className="text-sm font-mono text-white/90 break-words">{v}</dd>
+              </div>
+            ))}
+          </dl>
+          <div>
+            <span className={labelCls}>Tinción</span>
+            {steps.length === 0 ? (
+              <p className="text-sm font-mono text-white/40">—</p>
+            ) : (
+              <ol className="space-y-2">
+                {steps.map((st, i) => (
+                  <li key={st.id ?? i} className="flex gap-4 bg-white/5 border border-white/5 rounded-xl px-4 py-3">
+                    <span className="text-violet-300 font-black text-sm pt-4">{i + 1}</span>
+                    <div className="grid grid-cols-3 gap-4 flex-1 text-sm font-mono">
+                      {[
+                        ['Lavados', has(st.wash_count) ? `${st.wash_count}×${has(st.wash_volume_ul) ? ` ${st.wash_volume_ul} µL` : ''}` : '—'],
+                        ['Tinción', `${st.stain_type || '—'}${has(st.stain_time_s) ? ` · ${st.stain_time_s} s` : ''}`],
+                        ['Secado', st.drying_method || '—'],
+                      ].map(([k, v]) => (
+                        <div key={k}>
+                          <dt className={labelCls + ' mb-1'}>{k}</dt>
+                          <dd className="text-white/90 break-words">{v}</dd>
+                        </div>
+                      ))}
+                    </div>
+                  </li>
+                ))}
+              </ol>
+            )}
+          </div>
+          {grid.notes && (
+            <div>
+              <span className={labelCls}>Notas</span>
+              <p className="text-sm text-white/70 whitespace-pre-wrap">{grid.notes}</p>
+            </div>
+          )}
+          <div className="flex justify-end gap-3 pt-2">
+            <button type="button" onClick={onClose} className="px-5 py-3 rounded-xl text-xs font-black uppercase tracking-widest text-white/50 hover:bg-white/10">Cerrar</button>
+            <button type="button" onClick={() => setEditing(true)} className="flex items-center gap-2 px-6 py-3 rounded-xl text-xs font-black uppercase tracking-widest bg-violet-500 text-white hover:bg-violet-400">
+              <Pencil size={14} /> Editar
+            </button>
+          </div>
+        </div>
+      </Modal>
+    );
+  }
+
   return (
     <Modal
-      title={grid ? `Grid ${grid.box_number} · ${grid.position}` : `Nueva grid · ${targetBox?.box_number ?? ''} ${form.position}`}
+      title={grid ? `Editar grid ${grid.box_number} · ${grid.position}` : `Nueva grid · ${targetBox?.box_number ?? ''} ${form.position}`}
       subtitle="Registro de preparación"
       onClose={onClose}
     >
@@ -248,22 +382,62 @@ function GridModal({ grid, box, boxes, position, suggestions, onClose, onSaved }
           <Field label="Tiempo aplicación muestra (s)">
             <input type="number" step="any" min="0" className={inputCls} value={form.sample_time_s} onChange={set('sample_time_s')} />
           </Field>
-          <div className="hidden md:block" />
-          <div className="col-span-2 md:col-span-1">
-            <Field label="Tipo de tinción">
-              <input className={inputCls} value={form.stain_type} onChange={set('stain_type')} list="em-stains" />
-            </Field>
+        </div>
+
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <span className={labelCls + ' mb-0'}>Tinción · lavados → tinción → secado</span>
+            <button type="button" onClick={addStep} className="flex items-center gap-1 px-3 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest bg-white/5 hover:bg-violet-500/30 text-violet-300">
+              <Plus size={12} /> Agregar tinción
+            </button>
           </div>
-          <Field label="Incubación tinción (s)">
-            <input type="number" step="any" min="0" className={inputCls} value={form.stain_time_s} onChange={set('stain_time_s')} />
-          </Field>
+          {form.stain_steps.map((st, i) => (
+            <div key={i} className="relative bg-white/[0.03] border border-white/10 rounded-2xl p-4 pt-3">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs font-black text-violet-300">Tinción {i + 1}</span>
+                {form.stain_steps.length > 1 && (
+                  <button type="button" onClick={() => removeStep(i)} className="p-1 rounded-md text-white/30 hover:text-red-300 hover:bg-red-500/10" title="Quitar paso">
+                    <X size={14} />
+                  </button>
+                )}
+              </div>
+              <div className="grid grid-cols-2 md:grid-cols-12 gap-3 items-end">
+                <div className="md:col-span-2">
+                  <Field label="Lavados (nº)">
+                    <input type="number" min="0" step="1" className={inputCls} value={st.wash_count} onChange={setStep(i, 'wash_count')} />
+                  </Field>
+                </div>
+                <div className="md:col-span-2">
+                  <Field label={<>Vol. <span className="normal-case">(µL)</span></>}>
+                    <input type="number" step="any" min="0" className={inputCls} value={st.wash_volume_ul} onChange={setStep(i, 'wash_volume_ul')} />
+                  </Field>
+                </div>
+                <div className="md:col-span-3">
+                  <Field label="Tinción">
+                    <input className={inputCls} value={st.stain_type} onChange={setStep(i, 'stain_type')} list="em-stains" />
+                  </Field>
+                </div>
+                <div className="md:col-span-2">
+                  <Field label="Tiempo (s)">
+                    <input type="number" step="any" min="0" className={inputCls} value={st.stain_time_s} onChange={setStep(i, 'stain_time_s')} />
+                  </Field>
+                </div>
+                <div className="col-span-2 md:col-span-3">
+                  <Field label="Secado">
+                    <input className={inputCls} value={st.drying_method} onChange={setStep(i, 'drying_method')} list="em-drying" />
+                  </Field>
+                </div>
+              </div>
+            </div>
+          ))}
         </div>
         <Field label="Notas">
-          <textarea rows={2} className={inputCls} value={form.notes} onChange={set('notes')} placeholder="Glow discharge, blotting, lavados, observaciones de imagen..." />
+          <textarea rows={2} className={inputCls} value={form.notes} onChange={set('notes')} placeholder="Glow discharge, solución de lavado, observaciones de imagen..." />
         </Field>
 
         <datalist id="em-samples">{suggestions.samples.map((s) => <option key={s} value={s} />)}</datalist>
         <datalist id="em-stains">{suggestions.stains.map((s) => <option key={s} value={s} />)}</datalist>
+        <datalist id="em-drying">{DRYING_SUGGESTIONS.map((s) => <option key={s} value={s} />)}</datalist>
         <datalist id="em-grid-types">{suggestions.gridTypes.map((s) => <option key={s} value={s} />)}</datalist>
 
         {error && <p className="text-red-400 text-sm font-mono">{error}</p>}
@@ -276,7 +450,7 @@ function GridModal({ grid, box, boxes, position, suggestions, onClose, onSaved }
             )}
           </div>
           <div className="flex gap-3">
-            <button type="button" onClick={onClose} className="px-5 py-3 rounded-xl text-xs font-black uppercase tracking-widest text-white/50 hover:bg-white/10">Cancelar</button>
+            <button type="button" onClick={cancelEdit} className="px-5 py-3 rounded-xl text-xs font-black uppercase tracking-widest text-white/50 hover:bg-white/10">Cancelar</button>
             <button type="submit" className="px-6 py-3 rounded-xl text-xs font-black uppercase tracking-widest bg-violet-500 text-white hover:bg-violet-400">Guardar</button>
           </div>
         </div>
@@ -293,48 +467,66 @@ function BoxMap({ box, onSlotClick }) {
     box.grids.filter((g) => IN_BOX.includes(g.status)).forEach((g) => { m[g.position] = g; });
     return m;
   }, [box]);
-  const rows = rowsOf(box);
-  const cols = Array.from({ length: box.columns }, (_, i) => i + 1);
+  const { halves } = getLayout(box);
+  const axis = 'text-[10px] font-mono text-white/30 font-bold text-center';
 
-  return (
-    <div className="overflow-x-auto">
-      <table className="border-separate border-spacing-1.5 mx-auto">
-        <thead>
-          <tr>
-            <th />
-            {cols.map((c) => <th key={c} className="text-[10px] font-mono text-white/30 font-bold">{c}</th>)}
-          </tr>
-        </thead>
+  // Each half is drawn as seen from above; the left half of commercial boxes
+  // is printed upside down, so its column numbers go below.
+  const renderHalf = (half, idx) => {
+    const colsOnTop = halves.length === 1 || idx === halves.length - 1;
+    const colHeader = (
+      <tr>
+        {idx === 0 && <th />}
+        {half.cols.map((c) => <th key={c} className={axis}>{c}</th>)}
+        {idx !== 0 && <th />}
+      </tr>
+    );
+    const rowLabel = (r) => <th className={`${axis} ${idx === 0 ? 'pr-1' : 'pl-1'}`}>{r}</th>;
+    return (
+      <table key={idx} className="border-separate border-spacing-1">
+        {colsOnTop && <thead>{colHeader}</thead>}
         <tbody>
-          {rows.map((r) => (
+          {half.rows.map((r) => (
             <tr key={r}>
-              <th className="text-[10px] font-mono text-white/30 font-bold pr-1">{r}</th>
-              {cols.map((c) => {
+              {idx === 0 && rowLabel(r)}
+              {half.cols.map((c) => {
                 const pos = `${r}${c}`;
+                if (!half.hasSlot(r, c)) return <td key={pos} className="w-12 h-12" />;
                 const g = bySlot[pos];
                 return (
                   <td key={pos}>
                     <button
                       onClick={() => onSlotClick(pos, g)}
-                      title={g ? `${pos} · ${g.sample}${g.stain_type ? ` · ${g.stain_type}` : ''}` : `${pos} · libre`}
-                      className={`w-16 h-16 rounded-xl border text-left p-1.5 transition-all hover:scale-105 ${
-                        g ? STATUS_STYLE[g.status] : 'border-dashed border-white/10 text-white/15 hover:border-violet-400/60 hover:text-violet-300'
+                      title={g ? `${pos} · ${g.sample}${stainSummary(g) ? ` · ${stainSummary(g)}` : ''}` : `${pos} · libre`}
+                      className={`w-12 h-12 rounded-lg border text-left p-1 transition-all hover:scale-110 ${
+                        g ? STATUS_STYLE[g.status] : 'border-dashed border-white/10 text-white/20 hover:border-violet-400/60 hover:text-violet-300'
                       }`}
                     >
-                      <div className="text-[9px] font-mono font-bold opacity-70">{pos}</div>
-                      {g ? (
-                        <div className="text-[10px] font-black leading-tight truncate">{g.sample}</div>
-                      ) : (
-                        <Plus size={14} className="mx-auto mt-1" />
-                      )}
+                      <div className="text-[9px] font-mono font-bold opacity-80">{pos}</div>
+                      {g && <div className="text-[9px] font-black leading-tight truncate">{g.sample}</div>}
                     </button>
                   </td>
                 );
               })}
+              {idx !== 0 && rowLabel(r)}
             </tr>
           ))}
         </tbody>
+        {!colsOnTop && <tfoot>{colHeader}</tfoot>}
       </table>
+    );
+  };
+
+  return (
+    <div className="overflow-x-auto">
+      <div className="flex items-start justify-center gap-4 w-max mx-auto">
+        {halves.map((h, i) => (
+          <React.Fragment key={i}>
+            {i > 0 && <div className="self-stretch w-px bg-white/10 mx-1" />}
+            {renderHalf(h, i)}
+          </React.Fragment>
+        ))}
+      </div>
       <div className="flex gap-4 justify-center mt-4 text-[10px] font-mono uppercase tracking-widest text-white/40">
         {IN_BOX.map((s) => (
           <span key={s} className="flex items-center gap-2"><span className={`w-3 h-3 rounded border ${STATUS_STYLE[s]}`} />{s}</span>
@@ -346,8 +538,6 @@ function BoxMap({ box, onSlotClick }) {
 }
 
 // ── Main ───────────────────────────────────────────────────────────────────
-
-const fmt = (v, unit) => (v === null || v === undefined || v === '' ? '—' : `${v}${unit ? ` ${unit}` : ''}`);
 
 export default function EMGridsApp() {
   const navigate = useNavigate();
@@ -398,7 +588,7 @@ export default function EMGridsApp() {
     const uniq = (arr) => [...new Set(arr.filter(Boolean))].sort();
     return {
       samples: uniq(allGrids.map((g) => g.sample)),
-      stains: uniq([...STAIN_SUGGESTIONS, ...allGrids.map((g) => g.stain_type)]),
+      stains: uniq([...STAIN_SUGGESTIONS, ...allGrids.flatMap((g) => g.stain_steps.map((st) => st.stain_type))]),
       gridTypes: uniq([
         ...Object.values(BOX_PRESETS).map((p) => p.default_grid_type),
         ...boxes.map((b) => b.default_grid_type),
@@ -412,7 +602,7 @@ export default function EMGridsApp() {
     return allGrids.filter((g) => {
       if (statusFilter && g.status !== statusFilter) return false;
       if (!q) return true;
-      return [g.sample, g.stain_type, g.grid_type, g.notes, g.box_number, g.position]
+      return [g.sample, ...g.stain_steps.map((st) => st.stain_type), ...g.stain_steps.map((st) => st.drying_method), g.grid_type, g.notes, g.box_number, g.position]
         .some((v) => v && String(v).toLowerCase().includes(q));
     });
   }, [allGrids, search, statusFilter]);
@@ -437,8 +627,8 @@ export default function EMGridsApp() {
         'Tipo de grid': g.grid_type ?? '',
         'Volumen (uL)': g.sample_volume_ul ?? '',
         'Tiempo muestra (s)': g.sample_time_s ?? '',
-        Tincion: g.stain_type ?? '',
-        'Incubacion tincion (s)': g.stain_time_s ?? '',
+        'Nº tinciones': g.stain_steps.length,
+        'Protocolo tincion': g.stain_steps.map((st, i) => `${i + 1}) ${describeStep(st)}`).join(' | '),
         'Fecha preparacion': g.prep_date ?? '',
         Estado: g.status,
         Notas: g.notes ?? '',
@@ -565,7 +755,7 @@ export default function EMGridsApp() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="text-left text-[10px] font-black uppercase tracking-widest text-white/40 border-b border-white/10">
-                    {['Caja', 'Pos.', 'Muestra', 'Tipo de grid', 'Vol.', 'T. muestra', 'Tinción', 'T. tinción', 'Fecha', 'Estado'].map((h) => (
+                    {['Caja', 'Pos.', 'Muestra', 'Tipo de grid', 'Vol.', 'T. muestra', 'Tinción', 'Fecha', 'Estado'].map((h) => (
                       <th key={h} className="py-3 pr-4 whitespace-nowrap">{h}</th>
                     ))}
                   </tr>
@@ -579,8 +769,7 @@ export default function EMGridsApp() {
                       <td className="py-3 pr-4 text-white/60">{fmt(g.grid_type)}</td>
                       <td className="py-3 pr-4 font-mono whitespace-nowrap">{fmt(g.sample_volume_ul, 'µL')}</td>
                       <td className="py-3 pr-4 font-mono whitespace-nowrap">{fmt(g.sample_time_s, 's')}</td>
-                      <td className="py-3 pr-4">{fmt(g.stain_type)}</td>
-                      <td className="py-3 pr-4 font-mono whitespace-nowrap">{fmt(g.stain_time_s, 's')}</td>
+                      <td className="py-3 pr-4">{stainSummary(g) || '—'}</td>
                       <td className="py-3 pr-4 font-mono whitespace-nowrap">{fmt(g.prep_date)}</td>
                       <td className="py-3 pr-4"><span className={`px-2 py-1 rounded-md border text-[10px] font-black uppercase ${STATUS_STYLE[g.status]}`}>{g.status}</span></td>
                     </tr>
