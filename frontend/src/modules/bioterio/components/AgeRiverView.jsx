@@ -36,7 +36,7 @@ export default function AgeRiverView({ data }) {
     if (!data?.live_animals) return [];
     const byGenotype = {};
     for (const a of data.live_animals) {
-      const key = a.genotype || 'Sin genotipo';
+      const key = a.genotype || 'No genotype';
       if (!byGenotype[key]) byGenotype[key] = [];
       byGenotype[key].push(a);
     }
@@ -110,7 +110,7 @@ export default function AgeRiverView({ data }) {
                 <div className="text-xs font-black text-white/70 uppercase tracking-tight leading-tight truncate" title={genotype}>
                   {genotype}
                 </div>
-                <div className="text-[10px] font-mono text-white/25 mt-0.5">{total} vivos</div>
+                <div className="text-[10px] font-mono text-white/25 mt-0.5">{total} alive</div>
               </div>
 
               <div
@@ -132,7 +132,7 @@ export default function AgeRiverView({ data }) {
                           y: rect.top,
                         });
                       }}
-                      title={`${g.total} animal(es) · ${g.months}m`}
+                      title={`${g.total} animal${g.total === 1 ? '' : 's'} · ${g.months}m`}
                       style={{
                         left: `${pctFor(g.months, maxMonths)}%`,
                         top: '50%',
@@ -185,11 +185,11 @@ export default function AgeRiverView({ data }) {
             <div className="flex gap-6">
               <div className="text-center">
                 <div className="text-2xl font-black text-blue-400">{selected.group.males}</div>
-                <div className="text-[9px] font-black uppercase tracking-widest text-white/40 mt-0.5">Machos</div>
+                <div className="text-[9px] font-black uppercase tracking-widest text-white/40 mt-0.5">Males</div>
               </div>
               <div className="text-center">
                 <div className="text-2xl font-black text-pink-400">{selected.group.females}</div>
-                <div className="text-[9px] font-black uppercase tracking-widest text-white/40 mt-0.5">Hembras</div>
+                <div className="text-[9px] font-black uppercase tracking-widest text-white/40 mt-0.5">Females</div>
               </div>
             </div>
           </div>

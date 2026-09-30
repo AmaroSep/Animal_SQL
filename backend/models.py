@@ -5,6 +5,7 @@ import enum
 from database import Base
 
 class AnimalStatus(str, enum.Enum):
+    # Stored values stay in Spanish (existing data and CSV format); the UI shows English labels
     ALIVE = "Vivo"
     ELIMINATED = "Eliminado"
     DEAD = "Muerto"
@@ -86,8 +87,9 @@ class Animal(Base):
 # ── EM Grids inventory ─────────────────────────────────────────────────────
 
 class EMGridStatus(str, enum.Enum):
-    # STORED / IMAGED grids physically occupy their slot; USED / DISCARDED free it
-    # but stay in the database as history.
+    # STORED / IMAGED / DISCARDED grids physically occupy their slot; USED frees it
+    # but stays in the database as history.
+    # Stored values stay in Spanish; the UI shows English labels
     STORED = "Almacenada"
     IMAGED = "Imageada"
     USED = "Usada"
@@ -119,7 +121,10 @@ class EMGrid(Base):
     position = Column(String, nullable=False)          # e.g. "C4"
     sample = Column(String, nullable=False)
     grid_type = Column(String, nullable=True)
+    fixed = Column(Boolean, nullable=True)             # None = not recorded
+    fixative = Column(String, nullable=True)           # e.g. "Glutaraldehyde 2.5%"
     sample_volume_ul = Column(Float, nullable=True)
+    dilution_factor = Column(Float, nullable=True)     # X in 1:X; 1 = undiluted
     sample_time_s = Column(Float, nullable=True)       # sample application time
     prep_date = Column(Date, nullable=True)
     status = Column(SqlEnum(EMGridStatus), default=EMGridStatus.STORED)

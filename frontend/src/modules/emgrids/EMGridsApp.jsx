@@ -7,9 +7,10 @@ import {
 } from '../../services/api';
 import * as XLSX from 'xlsx';
 import { FIXED_LAYOUT_TYPES, getLayout, getPositions } from './boxLayouts';
+import { gridStatusLabel } from '../../utils/labels';
 
 // Defaults per box type. Quantifoil and EMS have a fixed physical layout
-// (boxLayouts.js); row_labels/columns only define "Personalizada" boxes.
+// (boxLayouts.js); row_labels/columns only define "Custom" boxes.
 const BOX_PRESETS = {
   Quantifoil: {
     row_labels: 'A,B,C,D,E,F,G,H,I,J,K,L,M,N,O,P,Q,R,S,T',
@@ -21,21 +22,23 @@ const BOX_PRESETS = {
     columns: 10,
     default_grid_type: 'Carbon film, 400 mesh, Cu (CF400-CU)',
   },
-  Personalizada: { row_labels: 'A,B,C,D', columns: 5, default_grid_type: '' },
+  Custom: { row_labels: 'A,B,C,D', columns: 5, default_grid_type: '' },
 };
 
 const STAIN_SUGGESTIONS = ['Uranyl acetate 2%', 'Uranyl formate 0.75%', 'PTA 2%', 'Ammonium molybdate 2%', 'Nano-W', 'UA-Zero', 'UranyLess'];
 
-const DRYING_SUGGESTIONS = ['Blotting con papel filtro', 'Blotting lateral', 'Secado al aire', 'Blotting + secado al aire', 'Aspiración'];
+const FIXATIVE_SUGGESTIONS = ['Glutaraldehyde 2.5%', 'Glutaraldehyde 0.1%', 'PFA 4%', 'PFA 2% + Glutaraldehyde 2.5%', 'Formaldehyde 4%'];
+const DRYING_SUGGESTIONS = ['Filter paper blotting', 'Side blotting', 'Air dry', 'Blotting + air dry', 'Aspiration'];
 
+// Status values are stored in Spanish; gridStatusLabel() gives the English label
 const STATUSES = ['Almacenada', 'Imageada', 'Usada', 'Descartada'];
-const IN_BOX = ['Almacenada', 'Imageada'];
+const IN_BOX = ['Almacenada', 'Imageada', 'Descartada'];
 
 const STATUS_STYLE = {
   Almacenada: 'bg-violet-500/20 text-violet-300 border-violet-400/40',
   Imageada: 'bg-emerald-500/20 text-emerald-300 border-emerald-400/40',
   Usada: 'bg-white/5 text-white/40 border-white/10',
-  Descartada: 'bg-red-500/10 text-red-300/70 border-red-500/20',
+  Descartada: 'bg-red-500/25 text-red-200 border-red-400/60',
 };
 
 const inputCls = 'w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white placeholder-white/20 focus:border-violet-400 focus:outline-none';
@@ -109,13 +112,13 @@ function BoxModal({ box, onClose, onSaved }) {
   const capacity = getPositions(form).length;
 
   return (
-    <Modal title={box ? `Editar caja ${box.box_number}` : 'Nueva caja'} subtitle="Formato y datos de la caja" onClose={onClose}>
+    <Modal title={box ? `Edit box ${box.box_number}` : 'New box'} subtitle="Box layout and details" onClose={onClose}>
       <form onSubmit={submit} className="space-y-4">
         <div className="grid grid-cols-2 gap-4">
-          <Field label="Nº de caja *">
+          <Field label="Box number *">
             <input required className={inputCls} value={form.box_number} onChange={set('box_number')} placeholder="001" />
           </Field>
-          <Field label="Tipo de caja">
+          <Field label="Box type">
             <select className={inputCls} value={form.box_type} onChange={(e) => applyPreset(e.target.value)}>
               {Object.keys(BOX_PRESETS).map((t) => <option key={t} value={t} className="bg-slate-900">{t}</option>)}
             </select>
@@ -123,37 +126,37 @@ function BoxModal({ box, onClose, onSaved }) {
           {fixedLayout ? (
             <p className="col-span-2 text-xs font-mono text-white/40 -mt-1">
               {form.box_type === 'Quantifoil'
-                ? 'Formato fijo: filas A–J y K–T, columnas 1–10 en diagonal (5 grids por fila).'
-                : 'Formato fijo: filas A–E, columnas 1–5 y 6–10.'}
+                ? 'Fixed layout: rows A–J and K–T, columns 1–10, staggered (5 grids per row).'
+                : 'Fixed layout: rows A–E, columns 1–5 and 6–10.'}
             </p>
           ) : (
             <>
-              <Field label="Filas (separadas por coma)">
+              <Field label="Rows (comma separated)">
                 <input required className={inputCls} value={form.row_labels} onChange={set('row_labels')} />
               </Field>
-              <Field label="Columnas">
+              <Field label="Columns">
                 <input required type="number" min="1" className={inputCls} value={form.columns} onChange={set('columns')} />
               </Field>
             </>
           )}
-          <Field label="Tipo de grid por defecto">
+          <Field label="Default grid type">
             <input className={inputCls} value={form.default_grid_type || ''} onChange={set('default_grid_type')} />
           </Field>
-          <Field label="Lote / Nº fabricante">
+          <Field label="Lot / manufacturer no.">
             <input className={inputCls} value={form.lot || ''} onChange={set('lot')} placeholder="295913" />
           </Field>
-          <Field label="Ubicación física">
-            <input className={inputCls} value={form.location || ''} onChange={set('location')} placeholder="Desecador 1, repisa 2" />
+          <Field label="Physical location">
+            <input className={inputCls} value={form.location || ''} onChange={set('location')} placeholder="Desiccator 1, shelf 2" />
           </Field>
-          <div className="flex items-end pb-3 text-xs font-mono text-white/40">Capacidad: {capacity} posiciones</div>
+          <div className="flex items-end pb-3 text-xs font-mono text-white/40">Capacity: {capacity} positions</div>
         </div>
-        <Field label="Notas">
+        <Field label="Notes">
           <textarea rows={2} className={inputCls} value={form.notes || ''} onChange={set('notes')} />
         </Field>
         {error && <p className="text-red-400 text-sm font-mono">{error}</p>}
         <div className="flex justify-end gap-3 pt-2">
-          <button type="button" onClick={onClose} className="px-5 py-3 rounded-xl text-xs font-black uppercase tracking-widest text-white/50 hover:bg-white/10">Cancelar</button>
-          <button type="submit" className="px-6 py-3 rounded-xl text-xs font-black uppercase tracking-widest bg-violet-500 text-white hover:bg-violet-400">Guardar</button>
+          <button type="button" onClick={onClose} className="px-5 py-3 rounded-xl text-xs font-black uppercase tracking-widest text-white/50 hover:bg-white/10">Cancel</button>
+          <button type="submit" className="px-6 py-3 rounded-xl text-xs font-black uppercase tracking-widest bg-violet-500 text-white hover:bg-violet-400">Save</button>
         </div>
       </form>
     </Modal>
@@ -164,11 +167,11 @@ const fmt = (v, unit) => (v === null || v === undefined || v === '' ? '—' : `$
 
 const has = (v) => v !== null && v !== undefined && v !== '';
 
-// One-line description of a staining step: "2× 20 µL lavado → UranyLess 60 s → Blotting"
+// One-line description of a staining step: "2× 20 µL wash → UranyLess 60 s → Blotting"
 const describeStep = (st) => {
   const parts = [];
   if (has(st.wash_count) && Number(st.wash_count) > 0) {
-    parts.push(`${st.wash_count}× ${has(st.wash_volume_ul) ? `${st.wash_volume_ul} µL ` : ''}lavado`);
+    parts.push(`${st.wash_count}× ${has(st.wash_volume_ul) ? `${st.wash_volume_ul} µL ` : ''}wash`);
   }
   if (has(st.stain_type) || has(st.stain_time_s)) {
     parts.push([st.stain_type, has(st.stain_time_s) ? `${st.stain_time_s} s` : null].filter(Boolean).join(' '));
@@ -184,6 +187,14 @@ const stainSummary = (g) =>
     .map((st) => [st.stain_type, has(st.stain_time_s) ? `${st.stain_time_s} s` : null].filter(Boolean).join(' '))
     .join(' + ');
 
+// fixed: true / false / null (not recorded)
+const fixationLabel = (g) =>
+  g.fixed === true ? `Fixed${g.fixative ? ` · ${g.fixative}` : ''}` : g.fixed === false ? 'Not fixed' : '—';
+
+// dilution_factor is X in 1:X (1 = undiluted)
+const dilutionLabel = (g) =>
+  !has(g.dilution_factor) ? '—' : Number(g.dilution_factor) === 1 ? 'Undiluted' : `1:${g.dilution_factor}`;
+
 const emptyStep = () => ({ wash_count: '', wash_volume_ul: '', stain_type: '', stain_time_s: '', drying_method: '' });
 
 // ── Grid form ──────────────────────────────────────────────────────────────
@@ -193,7 +204,10 @@ const emptyGrid = (box, position) => ({
   position: position || '',
   sample: '',
   grid_type: box.default_grid_type || '',
+  fixed: false,
+  fixative: '',
   sample_volume_ul: '',
+  dilution_factor: '',
   sample_time_s: '',
   stain_steps: [emptyStep()],
   prep_date: new Date().toISOString().split('T')[0],
@@ -222,6 +236,7 @@ function GridModal({ grid, box, boxes, position, suggestions, onClose, onSaved }
   const positions = targetBox ? getPositions(targetBox) : [];
 
   const num = (v) => (v === '' || v === null ? null : parseFloat(v));
+  const isFixed = form.fixed === true || form.fixed === 'true';
 
   const submit = async (e) => {
     e.preventDefault();
@@ -230,7 +245,10 @@ function GridModal({ grid, box, boxes, position, suggestions, onClose, onSaved }
       position: form.position,
       sample: form.sample.trim(),
       grid_type: form.grid_type || null,
+      fixed: form.fixed === '' ? null : isFixed,
+      fixative: isFixed ? form.fixative.trim() || null : null,
       sample_volume_ul: num(form.sample_volume_ul),
+      dilution_factor: num(form.dilution_factor),
       sample_time_s: num(form.sample_time_s),
       stain_steps: form.stain_steps.map((st) => ({
         wash_count: st.wash_count === '' ? null : parseInt(st.wash_count, 10),
@@ -252,7 +270,7 @@ function GridModal({ grid, box, boxes, position, suggestions, onClose, onSaved }
   };
 
   const remove = async () => {
-    if (!confirm(`¿Eliminar definitivamente el registro de la grid ${grid.position} (${grid.sample})? Si ya no está en la caja, usa el estado "Usada" o "Descartada" para conservar el historial.`)) return;
+    if (!confirm(`Permanently delete the record of grid ${grid.position} (${grid.sample})? To keep its history, use the status "Discarded" (still in the box) or "Used" (no longer in the box) instead.`)) return;
     try {
       await deleteEMGrid(grid.id);
       onSaved(null);
@@ -270,23 +288,25 @@ function GridModal({ grid, box, boxes, position, suggestions, onClose, onSaved }
 
   if (!editing) {
     const detail = [
-      ['Caja', `${grid.box_number}${box ? ` (${box.box_type})` : ''}`],
-      ['Posición', grid.position],
-      ['Fecha preparación', fmt(grid.prep_date)],
-      ['Tipo de grid', fmt(grid.grid_type)],
-      ['Volumen muestra', fmt(grid.sample_volume_ul, 'µL')],
-      ['Tiempo aplicación muestra', fmt(grid.sample_time_s, 's')],
+      ['Box', `${grid.box_number}${box ? ` (${box.box_type})` : ''}`],
+      ['Position', grid.position],
+      ['Prep date', fmt(grid.prep_date)],
+      ['Grid type', fmt(grid.grid_type)],
+      ['Fixation', fixationLabel(grid)],
+      ['Sample volume', fmt(grid.sample_volume_ul, 'µL')],
+      ['Dilution', dilutionLabel(grid)],
+      ['Sample application time', fmt(grid.sample_time_s, 's')],
     ];
     const steps = (grid.stain_steps || []).filter((st) => describeStep(st));
     return (
-      <Modal title={`Grid ${grid.box_number} · ${grid.position}`} subtitle="Registro de preparación" onClose={onClose}>
+      <Modal title={`Grid ${grid.box_number} · ${grid.position}`} subtitle="Preparation record" onClose={onClose}>
         <div className="space-y-5">
           <div className="flex items-start justify-between gap-4">
             <div>
-              <span className={labelCls}>Muestra</span>
+              <span className={labelCls}>Sample</span>
               <p className="text-xl font-black tracking-tight">{grid.sample}</p>
             </div>
-            <span className={`px-2 py-1 rounded-md border text-[10px] font-black uppercase ${STATUS_STYLE[grid.status]}`}>{grid.status}</span>
+            <span className={`px-2 py-1 rounded-md border text-[10px] font-black uppercase ${STATUS_STYLE[grid.status]}`}>{gridStatusLabel(grid.status)}</span>
           </div>
           <dl className="grid grid-cols-2 md:grid-cols-3 gap-4">
             {detail.map(([k, v]) => (
@@ -297,7 +317,7 @@ function GridModal({ grid, box, boxes, position, suggestions, onClose, onSaved }
             ))}
           </dl>
           <div>
-            <span className={labelCls}>Tinción</span>
+            <span className={labelCls}>Staining</span>
             {steps.length === 0 ? (
               <p className="text-sm font-mono text-white/40">—</p>
             ) : (
@@ -307,9 +327,9 @@ function GridModal({ grid, box, boxes, position, suggestions, onClose, onSaved }
                     <span className="text-violet-300 font-black text-sm pt-4">{i + 1}</span>
                     <div className="grid grid-cols-3 gap-4 flex-1 text-sm font-mono">
                       {[
-                        ['Lavados', has(st.wash_count) ? `${st.wash_count}×${has(st.wash_volume_ul) ? ` ${st.wash_volume_ul} µL` : ''}` : '—'],
-                        ['Tinción', `${st.stain_type || '—'}${has(st.stain_time_s) ? ` · ${st.stain_time_s} s` : ''}`],
-                        ['Secado', st.drying_method || '—'],
+                        ['Washes', has(st.wash_count) ? `${st.wash_count}×${has(st.wash_volume_ul) ? ` ${st.wash_volume_ul} µL` : ''}` : '—'],
+                        ['Stain', `${st.stain_type || '—'}${has(st.stain_time_s) ? ` · ${st.stain_time_s} s` : ''}`],
+                        ['Drying', st.drying_method || '—'],
                       ].map(([k, v]) => (
                         <div key={k}>
                           <dt className={labelCls + ' mb-1'}>{k}</dt>
@@ -324,14 +344,14 @@ function GridModal({ grid, box, boxes, position, suggestions, onClose, onSaved }
           </div>
           {grid.notes && (
             <div>
-              <span className={labelCls}>Notas</span>
+              <span className={labelCls}>Notes</span>
               <p className="text-sm text-white/70 whitespace-pre-wrap">{grid.notes}</p>
             </div>
           )}
           <div className="flex justify-end gap-3 pt-2">
-            <button type="button" onClick={onClose} className="px-5 py-3 rounded-xl text-xs font-black uppercase tracking-widest text-white/50 hover:bg-white/10">Cerrar</button>
+            <button type="button" onClick={onClose} className="px-5 py-3 rounded-xl text-xs font-black uppercase tracking-widest text-white/50 hover:bg-white/10">Close</button>
             <button type="button" onClick={() => setEditing(true)} className="flex items-center gap-2 px-6 py-3 rounded-xl text-xs font-black uppercase tracking-widest bg-violet-500 text-white hover:bg-violet-400">
-              <Pencil size={14} /> Editar
+              <Pencil size={14} /> Edit
             </button>
           </div>
         </div>
@@ -341,69 +361,94 @@ function GridModal({ grid, box, boxes, position, suggestions, onClose, onSaved }
 
   return (
     <Modal
-      title={grid ? `Editar grid ${grid.box_number} · ${grid.position}` : `Nueva grid · ${targetBox?.box_number ?? ''} ${form.position}`}
-      subtitle="Registro de preparación"
+      title={grid ? `Edit grid ${grid.box_number} · ${grid.position}` : `New grid · ${targetBox?.box_number ?? ''} ${form.position}`}
+      subtitle="Preparation record"
       onClose={onClose}
     >
       <form onSubmit={submit} className="space-y-4">
         <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-          <Field label="Caja">
+          <Field label="Box">
             <select className={inputCls} value={form.box_id} onChange={set('box_id')}>
               {boxes.map((b) => <option key={b.id} value={b.id} className="bg-slate-900">{b.box_number} ({b.box_type})</option>)}
             </select>
           </Field>
-          <Field label="Posición *">
+          <Field label="Position *">
             <select required className={inputCls} value={form.position} onChange={set('position')}>
               <option value="" className="bg-slate-900">—</option>
               {positions.map((p) => <option key={p} value={p} className="bg-slate-900">{p}</option>)}
             </select>
           </Field>
-          <Field label="Estado">
+          <Field label="Status">
             <select className={inputCls} value={form.status} onChange={set('status')}>
-              {STATUSES.map((s) => <option key={s} value={s} className="bg-slate-900">{s}</option>)}
+              {STATUSES.map((s) => <option key={s} value={s} className="bg-slate-900">{gridStatusLabel(s)}</option>)}
             </select>
           </Field>
           <div className="col-span-2">
-            <Field label="Muestra *">
-              <input required className={inputCls} value={form.sample} onChange={set('sample')} list="em-samples" placeholder="Proteína / constructo / concentración" />
+            <Field label="Sample *">
+              <input required className={inputCls} value={form.sample} onChange={set('sample')} list="em-samples" placeholder="Protein / construct / concentration" />
             </Field>
           </div>
-          <Field label="Fecha preparación">
+          <Field label="Prep date">
             <input type="date" className={inputCls} value={form.prep_date} onChange={set('prep_date')} />
           </Field>
           <div className="col-span-2 md:col-span-3">
-            <Field label="Tipo de grid">
+            <Field label="Grid type">
               <input className={inputCls} value={form.grid_type} onChange={set('grid_type')} list="em-grid-types" />
             </Field>
           </div>
-          <Field label={<>Volumen muestra <span className="normal-case">(µL)</span></>}>
+          <Field label="Sample fixed">
+            <select className={inputCls} value={form.fixed === '' ? '' : String(form.fixed)} onChange={set('fixed')}>
+              <option value="" className="bg-slate-900">Not recorded</option>
+              <option value="false" className="bg-slate-900">Not fixed</option>
+              <option value="true" className="bg-slate-900">Fixed</option>
+            </select>
+          </Field>
+          <div className="md:col-span-2">
+            <Field label="Fixative">
+              <input
+                className={`${inputCls} disabled:opacity-40`}
+                value={isFixed ? form.fixative : ''}
+                onChange={set('fixative')}
+                list="em-fixatives"
+                disabled={!isFixed}
+                placeholder={isFixed ? 'Glutaraldehyde 2.5%, PFA 4%...' : '—'}
+              />
+            </Field>
+          </div>
+          <Field label={<>Sample volume <span className="normal-case">(µL)</span></>}>
             <input type="number" step="any" min="0" className={inputCls} value={form.sample_volume_ul} onChange={set('sample_volume_ul')} />
           </Field>
-          <Field label="Tiempo aplicación muestra (s)">
+          <Field label="Dilution factor (1 = undiluted)">
+            <div className="relative">
+              <span className="absolute left-4 top-1/2 -translate-y-1/2 text-sm font-mono text-white/40">1 :</span>
+              <input type="number" step="any" min="1" className={`${inputCls} pl-12`} value={form.dilution_factor} onChange={set('dilution_factor')} placeholder="10" />
+            </div>
+          </Field>
+          <Field label="Sample application time (s)">
             <input type="number" step="any" min="0" className={inputCls} value={form.sample_time_s} onChange={set('sample_time_s')} />
           </Field>
         </div>
 
         <div className="space-y-3">
           <div className="flex items-center justify-between">
-            <span className={labelCls + ' mb-0'}>Tinción · lavados → tinción → secado</span>
+            <span className={labelCls + ' mb-0'}>Staining · washes → stain → drying</span>
             <button type="button" onClick={addStep} className="flex items-center gap-1 px-3 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest bg-white/5 hover:bg-violet-500/30 text-violet-300">
-              <Plus size={12} /> Agregar tinción
+              <Plus size={12} /> Add stain
             </button>
           </div>
           {form.stain_steps.map((st, i) => (
             <div key={i} className="relative bg-white/[0.03] border border-white/10 rounded-2xl p-4 pt-3">
               <div className="flex items-center justify-between mb-2">
-                <span className="text-xs font-black text-violet-300">Tinción {i + 1}</span>
+                <span className="text-xs font-black text-violet-300">Stain {i + 1}</span>
                 {form.stain_steps.length > 1 && (
-                  <button type="button" onClick={() => removeStep(i)} className="p-1 rounded-md text-white/30 hover:text-red-300 hover:bg-red-500/10" title="Quitar paso">
+                  <button type="button" onClick={() => removeStep(i)} className="p-1 rounded-md text-white/30 hover:text-red-300 hover:bg-red-500/10" title="Remove step">
                     <X size={14} />
                   </button>
                 )}
               </div>
               <div className="grid grid-cols-2 md:grid-cols-12 gap-3 items-end">
                 <div className="md:col-span-2">
-                  <Field label="Lavados (nº)">
+                  <Field label="Washes (no.)">
                     <input type="number" min="0" step="1" className={inputCls} value={st.wash_count} onChange={setStep(i, 'wash_count')} />
                   </Field>
                 </div>
@@ -413,17 +458,17 @@ function GridModal({ grid, box, boxes, position, suggestions, onClose, onSaved }
                   </Field>
                 </div>
                 <div className="md:col-span-3">
-                  <Field label="Tinción">
+                  <Field label="Stain">
                     <input className={inputCls} value={st.stain_type} onChange={setStep(i, 'stain_type')} list="em-stains" />
                   </Field>
                 </div>
                 <div className="md:col-span-2">
-                  <Field label="Tiempo (s)">
+                  <Field label="Time (s)">
                     <input type="number" step="any" min="0" className={inputCls} value={st.stain_time_s} onChange={setStep(i, 'stain_time_s')} />
                   </Field>
                 </div>
                 <div className="col-span-2 md:col-span-3">
-                  <Field label="Secado">
+                  <Field label="Drying">
                     <input className={inputCls} value={st.drying_method} onChange={setStep(i, 'drying_method')} list="em-drying" />
                   </Field>
                 </div>
@@ -431,12 +476,13 @@ function GridModal({ grid, box, boxes, position, suggestions, onClose, onSaved }
             </div>
           ))}
         </div>
-        <Field label="Notas">
-          <textarea rows={2} className={inputCls} value={form.notes} onChange={set('notes')} placeholder="Glow discharge, solución de lavado, observaciones de imagen..." />
+        <Field label="Notes">
+          <textarea rows={2} className={inputCls} value={form.notes} onChange={set('notes')} placeholder="Glow discharge, wash solution, imaging observations..." />
         </Field>
 
         <datalist id="em-samples">{suggestions.samples.map((s) => <option key={s} value={s} />)}</datalist>
         <datalist id="em-stains">{suggestions.stains.map((s) => <option key={s} value={s} />)}</datalist>
+        <datalist id="em-fixatives">{suggestions.fixatives.map((s) => <option key={s} value={s} />)}</datalist>
         <datalist id="em-drying">{DRYING_SUGGESTIONS.map((s) => <option key={s} value={s} />)}</datalist>
         <datalist id="em-grid-types">{suggestions.gridTypes.map((s) => <option key={s} value={s} />)}</datalist>
 
@@ -445,13 +491,13 @@ function GridModal({ grid, box, boxes, position, suggestions, onClose, onSaved }
           <div>
             {grid && (
               <button type="button" onClick={remove} className="flex items-center gap-2 px-4 py-3 rounded-xl text-xs font-black uppercase tracking-widest text-red-400 hover:bg-red-500/10">
-                <Trash2 size={14} /> Eliminar
+                <Trash2 size={14} /> Delete
               </button>
             )}
           </div>
           <div className="flex gap-3">
-            <button type="button" onClick={cancelEdit} className="px-5 py-3 rounded-xl text-xs font-black uppercase tracking-widest text-white/50 hover:bg-white/10">Cancelar</button>
-            <button type="submit" className="px-6 py-3 rounded-xl text-xs font-black uppercase tracking-widest bg-violet-500 text-white hover:bg-violet-400">Guardar</button>
+            <button type="button" onClick={cancelEdit} className="px-5 py-3 rounded-xl text-xs font-black uppercase tracking-widest text-white/50 hover:bg-white/10">Cancel</button>
+            <button type="submit" className="px-6 py-3 rounded-xl text-xs font-black uppercase tracking-widest bg-violet-500 text-white hover:bg-violet-400">Save</button>
           </div>
         </div>
       </form>
@@ -497,7 +543,7 @@ function BoxMap({ box, onSlotClick }) {
                   <td key={pos}>
                     <button
                       onClick={() => onSlotClick(pos, g)}
-                      title={g ? `${pos} · ${g.sample}${stainSummary(g) ? ` · ${stainSummary(g)}` : ''}` : `${pos} · libre`}
+                      title={g ? `${pos} · ${g.sample}${stainSummary(g) ? ` · ${stainSummary(g)}` : ''}` : `${pos} · empty`}
                       className={`w-12 h-12 rounded-lg border text-left p-1 transition-all hover:scale-110 ${
                         g ? STATUS_STYLE[g.status] : 'border-dashed border-white/10 text-white/20 hover:border-violet-400/60 hover:text-violet-300'
                       }`}
@@ -529,9 +575,9 @@ function BoxMap({ box, onSlotClick }) {
       </div>
       <div className="flex gap-4 justify-center mt-4 text-[10px] font-mono uppercase tracking-widest text-white/40">
         {IN_BOX.map((s) => (
-          <span key={s} className="flex items-center gap-2"><span className={`w-3 h-3 rounded border ${STATUS_STYLE[s]}`} />{s}</span>
+          <span key={s} className="flex items-center gap-2"><span className={`w-3 h-3 rounded border ${STATUS_STYLE[s]}`} />{gridStatusLabel(s)}</span>
         ))}
-        <span className="flex items-center gap-2"><span className="w-3 h-3 rounded border border-dashed border-white/20" />Libre</span>
+        <span className="flex items-center gap-2"><span className="w-3 h-3 rounded border border-dashed border-white/20" />Empty</span>
       </div>
     </div>
   );
@@ -588,6 +634,7 @@ export default function EMGridsApp() {
     const uniq = (arr) => [...new Set(arr.filter(Boolean))].sort();
     return {
       samples: uniq(allGrids.map((g) => g.sample)),
+      fixatives: uniq([...FIXATIVE_SUGGESTIONS, ...allGrids.map((g) => g.fixative)]),
       stains: uniq([...STAIN_SUGGESTIONS, ...allGrids.flatMap((g) => g.stain_steps.map((st) => st.stain_type))]),
       gridTypes: uniq([
         ...Object.values(BOX_PRESETS).map((p) => p.default_grid_type),
@@ -602,13 +649,13 @@ export default function EMGridsApp() {
     return allGrids.filter((g) => {
       if (statusFilter && g.status !== statusFilter) return false;
       if (!q) return true;
-      return [g.sample, ...g.stain_steps.map((st) => st.stain_type), ...g.stain_steps.map((st) => st.drying_method), g.grid_type, g.notes, g.box_number, g.position]
+      return [g.sample, g.fixative, ...g.stain_steps.map((st) => st.stain_type), ...g.stain_steps.map((st) => st.drying_method), g.grid_type, g.notes, g.box_number, g.position]
         .some((v) => v && String(v).toLowerCase().includes(q));
     });
   }, [allGrids, search, statusFilter]);
 
   const handleDeleteBox = async (box) => {
-    if (!confirm(`¿Eliminar la caja ${box.box_number}? Solo es posible si no tiene grids registradas.`)) return;
+    if (!confirm(`Delete box ${box.box_number}? Only possible if it has no grids recorded.`)) return;
     try {
       await deleteEMBox(box.id);
       setSelectedBoxId(null);
@@ -621,17 +668,20 @@ export default function EMGridsApp() {
   const exportExcel = () => {
     const sheet = XLSX.utils.json_to_sheet(
       filteredGrids.map((g) => ({
-        Caja: g.box_number,
-        Posicion: g.position,
-        Muestra: g.sample,
-        'Tipo de grid': g.grid_type ?? '',
-        'Volumen (uL)': g.sample_volume_ul ?? '',
-        'Tiempo muestra (s)': g.sample_time_s ?? '',
-        'Nº tinciones': g.stain_steps.length,
-        'Protocolo tincion': g.stain_steps.map((st, i) => `${i + 1}) ${describeStep(st)}`).join(' | '),
-        'Fecha preparacion': g.prep_date ?? '',
-        Estado: g.status,
-        Notas: g.notes ?? '',
+        Box: g.box_number,
+        Position: g.position,
+        Sample: g.sample,
+        Fixed: g.fixed === true ? 'Yes' : g.fixed === false ? 'No' : '',
+        Fixative: g.fixative ?? '',
+        'Grid type': g.grid_type ?? '',
+        'Volume (uL)': g.sample_volume_ul ?? '',
+        'Dilution factor (1:X)': g.dilution_factor ?? '',
+        'Sample time (s)': g.sample_time_s ?? '',
+        'No. of stains': g.stain_steps.length,
+        'Staining protocol': g.stain_steps.map((st, i) => `${i + 1}) ${describeStep(st)}`).join(' | '),
+        'Prep date': g.prep_date ?? '',
+        Status: gridStatusLabel(g.status),
+        Notes: g.notes ?? '',
       }))
     );
     const book = XLSX.utils.book_new();
@@ -658,16 +708,16 @@ export default function EMGridsApp() {
         </div>
         <div className="flex flex-wrap items-center gap-3">
           <button onClick={() => navigate('/')} className="flex items-center gap-2 px-4 py-3 bg-white/5 text-white/30 hover:text-white hover:bg-white/10 rounded-xl text-xs font-black uppercase tracking-widest transition-all">
-            <Home size={16} /> Inicio
+            <Home size={16} /> Home
           </button>
           <button onClick={() => setView('box')} className={`flex items-center gap-2 px-5 py-3 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${view === 'box' ? 'bg-violet-500 text-white' : 'bg-white/5 text-white/40 hover:bg-white/10'}`}>
-            <LayoutGrid size={16} /> Cajas
+            <LayoutGrid size={16} /> Boxes
           </button>
           <button onClick={() => setView('list')} className={`flex items-center gap-2 px-5 py-3 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${view === 'list' ? 'bg-violet-500 text-white' : 'bg-white/5 text-white/40 hover:bg-white/10'}`}>
-            <List size={16} /> Todas las grids
+            <List size={16} /> All grids
           </button>
           <button onClick={() => setBoxModal('new')} className="flex items-center gap-2 px-5 py-3 bg-white/10 hover:bg-violet-500 rounded-xl text-xs font-black uppercase tracking-widest transition-all">
-            <Plus size={16} /> Nueva caja
+            <Plus size={16} /> New box
           </button>
         </div>
       </header>
@@ -679,7 +729,7 @@ export default function EMGridsApp() {
             <aside className="space-y-2">
               {boxes.length === 0 && (
                 <div className="glass-card rounded-2xl p-6 text-center text-white/30 text-xs font-mono">
-                  Aún no hay cajas. Crea la primera con “Nueva caja”.
+                  No boxes yet. Create the first one with “New box”.
                 </div>
               )}
               {boxes.map((b) => (
@@ -705,25 +755,25 @@ export default function EMGridsApp() {
               <section className="glass rounded-3xl p-6 space-y-6">
                 <div className="flex flex-wrap items-start justify-between gap-4">
                   <div>
-                    <h2 className="text-2xl font-black tracking-tight">Caja {boxDetail.box_number}</h2>
+                    <h2 className="text-2xl font-black tracking-tight">Box {boxDetail.box_number}</h2>
                     <div className="flex flex-wrap gap-x-5 gap-y-1 mt-1 text-xs font-mono text-white/40">
                       <span>{boxDetail.box_type}</span>
                       {boxDetail.default_grid_type && <span>{boxDetail.default_grid_type}</span>}
-                      {boxDetail.lot && <span>Lote {boxDetail.lot}</span>}
+                      {boxDetail.lot && <span>Lot {boxDetail.lot}</span>}
                       {boxDetail.location && <span>{boxDetail.location}</span>}
-                      <span>{boxDetail.occupied}/{boxDetail.capacity} ocupadas</span>
+                      <span>{boxDetail.occupied}/{boxDetail.capacity} occupied</span>
                     </div>
                     {boxDetail.notes && <p className="text-xs text-white/40 mt-2">{boxDetail.notes}</p>}
                   </div>
                   <div className="flex gap-2">
-                    <button onClick={() => setBoxModal(boxDetail)} className="p-3 rounded-xl bg-white/5 hover:bg-white/10" title="Editar caja"><Pencil size={16} /></button>
-                    <button onClick={() => handleDeleteBox(boxDetail)} className="p-3 rounded-xl bg-white/5 hover:bg-red-500/20 text-red-300" title="Eliminar caja"><Trash2 size={16} /></button>
+                    <button onClick={() => setBoxModal(boxDetail)} className="p-3 rounded-xl bg-white/5 hover:bg-white/10" title="Edit box"><Pencil size={16} /></button>
+                    <button onClick={() => handleDeleteBox(boxDetail)} className="p-3 rounded-xl bg-white/5 hover:bg-red-500/20 text-red-300" title="Delete box"><Trash2 size={16} /></button>
                   </div>
                 </div>
                 <BoxMap box={boxDetail} onSlotClick={(position, grid) => setGridModal(grid ? { grid } : { position })} />
                 {boxDetail.grids.some((g) => !IN_BOX.includes(g.status)) && (
                   <div>
-                    <h3 className={labelCls}>Historial (usadas / descartadas)</h3>
+                    <h3 className={labelCls}>History (used, no longer in the box)</h3>
                     <div className="flex flex-wrap gap-2">
                       {boxDetail.grids.filter((g) => !IN_BOX.includes(g.status)).map((g) => (
                         <button key={g.id} onClick={() => setGridModal({ grid: g })} className={`px-3 py-1.5 rounded-lg border text-[11px] font-mono ${STATUS_STYLE[g.status]}`}>
@@ -741,11 +791,11 @@ export default function EMGridsApp() {
             <div className="flex flex-wrap items-center gap-3">
               <div className="relative flex-1 min-w-[220px]">
                 <Search size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-white/30" />
-                <input className={`${inputCls} pl-11`} placeholder="Buscar muestra, tinción, tipo de grid, caja..." value={search} onChange={(e) => setSearch(e.target.value)} />
+                <input className={`${inputCls} pl-11`} placeholder="Search sample, stain, grid type, box..." value={search} onChange={(e) => setSearch(e.target.value)} />
               </div>
               <select className={`${inputCls} w-auto`} value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
-                <option value="" className="bg-slate-900">Todos los estados</option>
-                {STATUSES.map((s) => <option key={s} value={s} className="bg-slate-900">{s}</option>)}
+                <option value="" className="bg-slate-900">All statuses</option>
+                {STATUSES.map((s) => <option key={s} value={s} className="bg-slate-900">{gridStatusLabel(s)}</option>)}
               </select>
               <button onClick={exportExcel} className="flex items-center gap-2 px-5 py-3 bg-white/5 hover:bg-violet-500 rounded-xl text-xs font-black uppercase tracking-widest transition-all">
                 <Download size={16} /> Excel
@@ -755,7 +805,7 @@ export default function EMGridsApp() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="text-left text-[10px] font-black uppercase tracking-widest text-white/40 border-b border-white/10">
-                    {['Caja', 'Pos.', 'Muestra', 'Tipo de grid', 'Vol.', 'T. muestra', 'Tinción', 'Fecha', 'Estado'].map((h) => (
+                    {['Box', 'Pos.', 'Sample', 'Fixation', 'Grid type', 'Vol.', 'Dilution', 'Sample time', 'Staining', 'Date', 'Status'].map((h) => (
                       <th key={h} className="py-3 pr-4 whitespace-nowrap">{h}</th>
                     ))}
                   </tr>
@@ -766,18 +816,20 @@ export default function EMGridsApp() {
                       <td className="py-3 pr-4 font-mono">{g.box_number}</td>
                       <td className="py-3 pr-4 font-mono font-bold">{g.position}</td>
                       <td className="py-3 pr-4 font-bold">{g.sample}</td>
+                      <td className="py-3 pr-4 text-white/70">{fixationLabel(g)}</td>
                       <td className="py-3 pr-4 text-white/60">{fmt(g.grid_type)}</td>
                       <td className="py-3 pr-4 font-mono whitespace-nowrap">{fmt(g.sample_volume_ul, 'µL')}</td>
+                      <td className="py-3 pr-4 font-mono whitespace-nowrap">{dilutionLabel(g)}</td>
                       <td className="py-3 pr-4 font-mono whitespace-nowrap">{fmt(g.sample_time_s, 's')}</td>
                       <td className="py-3 pr-4">{stainSummary(g) || '—'}</td>
                       <td className="py-3 pr-4 font-mono whitespace-nowrap">{fmt(g.prep_date)}</td>
-                      <td className="py-3 pr-4"><span className={`px-2 py-1 rounded-md border text-[10px] font-black uppercase ${STATUS_STYLE[g.status]}`}>{g.status}</span></td>
+                      <td className="py-3 pr-4"><span className={`px-2 py-1 rounded-md border text-[10px] font-black uppercase ${STATUS_STYLE[g.status]}`}>{gridStatusLabel(g.status)}</span></td>
                     </tr>
                   ))}
                 </tbody>
               </table>
               {filteredGrids.length === 0 && (
-                <p className="text-center py-12 text-white/20 font-mono text-xs uppercase tracking-widest">Sin grids que coincidan</p>
+                <p className="text-center py-12 text-white/20 font-mono text-xs uppercase tracking-widest">No matching grids</p>
               )}
             </div>
           </section>

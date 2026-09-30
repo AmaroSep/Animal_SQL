@@ -153,7 +153,10 @@ class EMGridBase(BaseModel):
     position: str
     sample: str
     grid_type: Optional[str] = None
+    fixed: Optional[bool] = None
+    fixative: Optional[str] = None
     sample_volume_ul: Optional[float] = None
+    dilution_factor: Optional[float] = None
     sample_time_s: Optional[float] = None
     stain_steps: List[EMGridStainStepIn] = []
     prep_date: Optional[date] = None
@@ -168,7 +171,10 @@ class EMGridUpdate(BaseModel):
     position: Optional[str] = None
     sample: Optional[str] = None
     grid_type: Optional[str] = None
+    fixed: Optional[bool] = None
+    fixative: Optional[str] = None
     sample_volume_ul: Optional[float] = None
+    dilution_factor: Optional[float] = None
     sample_time_s: Optional[float] = None
     stain_steps: Optional[List[EMGridStainStepIn]] = None
     prep_date: Optional[date] = None

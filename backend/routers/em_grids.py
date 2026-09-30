@@ -29,8 +29,14 @@ def migrate_single_stain_columns():
     """
     with engine.begin() as conn:
         conn.execute(text(sql))
+        # v3: sample fixation
+        conn.execute(text("ALTER TABLE em_grids ADD COLUMN IF NOT EXISTS fixed BOOLEAN"))
+        conn.execute(text("ALTER TABLE em_grids ADD COLUMN IF NOT EXISTS fixative VARCHAR"))
+        # v4: sample dilution
+        conn.execute(text("ALTER TABLE em_grids ADD COLUMN IF NOT EXISTS dilution_factor FLOAT"))
 
-IN_BOX_STATUSES = (models.EMGridStatus.STORED, models.EMGridStatus.IMAGED)
+# Discarded grids are kept physically in the box (shown red), so they still occupy their slot
+IN_BOX_STATUSES = (models.EMGridStatus.STORED, models.EMGridStatus.IMAGED, models.EMGridStatus.DISCARDED)
 
 
 # Fixed layouts of the commercial boxes (must match frontend boxLayouts.js).
@@ -86,13 +92,13 @@ def _set_stain_steps(grid: models.EMGrid, steps: List[schemas.EMGridStainStepIn]
 def _get_box(db: Session, box_id: int) -> models.EMGridBox:
     box = db.query(models.EMGridBox).filter(models.EMGridBox.id == box_id).first()
     if not box:
-        raise HTTPException(status_code=404, detail="Caja no encontrada")
+        raise HTTPException(status_code=404, detail="Box not found")
     return box
 
 
 def _check_slot(db: Session, box: models.EMGridBox, position: str, status, exclude_grid_id: Optional[int] = None):
     if position not in _positions(box):
-        raise HTTPException(status_code=400, detail=f"Posición {position} no existe en la caja {box.box_number}")
+        raise HTTPException(status_code=400, detail=f"Position {position} does not exist in box {box.box_number}")
     if status not in IN_BOX_STATUSES:
         return
     q = db.query(models.EMGrid).filter(
@@ -103,7 +109,7 @@ def _check_slot(db: Session, box: models.EMGridBox, position: str, status, exclu
     if exclude_grid_id is not None:
         q = q.filter(models.EMGrid.id != exclude_grid_id)
     if q.first():
-        raise HTTPException(status_code=400, detail=f"La posición {position} de la caja {box.box_number} ya está ocupada")
+        raise HTTPException(status_code=400, detail=f"Position {position} in box {box.box_number} is already occupied")
 
 
 # ── Boxes ──────────────────────────────────────────────────────────────────
@@ -122,7 +128,7 @@ def get_box(box_id: int, db: Session = Depends(get_db)):
 @router.post("/boxes", response_model=schemas.EMGridBoxSummary, status_code=201)
 def create_box(data: schemas.EMGridBoxCreate, db: Session = Depends(get_db)):
     if db.query(models.EMGridBox).filter(models.EMGridBox.box_number == data.box_number).first():
-        raise HTTPException(status_code=400, detail="Ya existe una caja con ese número")
+        raise HTTPException(status_code=400, detail="A box with that number already exists")
     box = models.EMGridBox(**data.model_dump())
     db.add(box)
     db.commit()
@@ -140,7 +146,7 @@ def update_box(box_id: int, data: schemas.EMGridBoxUpdate, db: Session = Depends
     orphans = [g.position for g in box.grids if g.status in IN_BOX_STATUSES and g.position not in valid]
     if orphans:
         db.rollback()
-        raise HTTPException(status_code=400, detail=f"El nuevo formato deja fuera grids en: {', '.join(orphans)}")
+        raise HTTPException(status_code=400, detail=f"The new layout would leave out grids at: {', '.join(orphans)}")
     db.commit()
     db.refresh(box)
     return _box_summary(box)
@@ -150,7 +156,7 @@ def update_box(box_id: int, data: schemas.EMGridBoxUpdate, db: Session = Depends
 def delete_box(box_id: int, db: Session = Depends(get_db)):
     box = _get_box(db, box_id)
     if box.grids:
-        raise HTTPException(status_code=400, detail="La caja tiene grids registradas; elimínalas o muévelas primero")
+        raise HTTPException(status_code=400, detail="The box still has grids; delete or move them first")
     db.delete(box)
     db.commit()
 
@@ -169,6 +175,7 @@ def list_grids(q: Optional[str] = None, status: Optional[models.EMGridStatus] = 
             | models.EMGrid.stain_steps.any(models.EMGridStainStep.stain_type.ilike(like))
             | models.EMGrid.stain_steps.any(models.EMGridStainStep.drying_method.ilike(like))
             | models.EMGrid.grid_type.ilike(like)
+            | models.EMGrid.fixative.ilike(like)
             | models.EMGrid.notes.ilike(like)
             | models.EMGridBox.box_number.ilike(like)
         )
@@ -181,6 +188,8 @@ def create_grid(data: schemas.EMGridCreate, db: Session = Depends(get_db)):
     box = _get_box(db, data.box_id)
     _check_slot(db, box, data.position, data.status)
     grid = models.EMGrid(**data.model_dump(exclude={"stain_steps"}))
+    if not grid.fixed:
+        grid.fixative = None
     _set_stain_steps(grid, data.stain_steps)
     if not grid.grid_type:
         grid.grid_type = box.default_grid_type
@@ -194,7 +203,7 @@ def create_grid(data: schemas.EMGridCreate, db: Session = Depends(get_db)):
 def update_grid(grid_id: int, data: schemas.EMGridUpdate, db: Session = Depends(get_db)):
     grid = db.query(models.EMGrid).filter(models.EMGrid.id == grid_id).first()
     if not grid:
-        raise HTTPException(status_code=404, detail="Grid no encontrada")
+        raise HTTPException(status_code=404, detail="Grid not found")
     changes = data.model_dump(exclude_unset=True)
     box = _get_box(db, changes.get("box_id", grid.box_id))
     _check_slot(db, box, changes.get("position", grid.position), changes.get("status", grid.status), exclude_grid_id=grid.id)
@@ -203,6 +212,8 @@ def update_grid(grid_id: int, data: schemas.EMGridUpdate, db: Session = Depends(
         _set_stain_steps(grid, data.stain_steps or [])
     for k, v in changes.items():
         setattr(grid, k, v)
+    if not grid.fixed:
+        grid.fixative = None
     db.commit()
     db.refresh(grid)
     return _grid_out(grid)
@@ -212,6 +223,6 @@ def update_grid(grid_id: int, data: schemas.EMGridUpdate, db: Session = Depends(
 def delete_grid(grid_id: int, db: Session = Depends(get_db)):
     grid = db.query(models.EMGrid).filter(models.EMGrid.id == grid_id).first()
     if not grid:
-        raise HTTPException(status_code=404, detail="Grid no encontrada")
+        raise HTTPException(status_code=404, detail="Grid not found")
     db.delete(grid)
     db.commit()

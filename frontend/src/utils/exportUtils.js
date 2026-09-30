@@ -38,16 +38,13 @@ export const exportStatisticsToExcel = (data) => {
 
   // 2. Horizontal Rack Grouping (Detailed Animals)
   
-  // Helper to extract Rack name from Cage display ID (e.g. "A1-R3" -> "RACK 3")
-  const getRackFromCage = (cageDisplay) => {
-    if (!cageDisplay || !cageDisplay.includes('-R')) return 'UNASSIGNED';
-    const parts = cageDisplay.split('-R');
-    return `RACK ${parts[1]}`;
-  };
+  // "#33 (B6)" for numbered cages, otherwise the rack position
+  const cageLabel = (a) =>
+    /^\d+$/.test(String(a.cage)) ? `#${a.cage}${a.position ? ` (${a.position})` : ''}` : (a.position || a.cage || 'N/A');
 
-  // Group animals by Rack
+  // Group animals by Rack (the backend sends each animal's rack name)
   const animalsByRack = data.live_animals.reduce((acc, a) => {
-    const rack = getRackFromCage(a.cage);
+    const rack = a.rack || 'UNASSIGNED';
     if (!acc[rack]) acc[rack] = [];
     acc[rack].push(a);
     return acc;
@@ -67,16 +64,16 @@ export const exportStatisticsToExcel = (data) => {
     XLSX.utils.sheet_add_aoa(worksheet, [['Cage', 'ID', 'Mark', 'Sex', 'Age', 'DOB', 'Genotype', 'Phenotype']], { origin: { r: rowOffset, c: colOffset } });
     rowOffset++;
 
-    // Sort animals in this Rack by Cage
-    const rackAnimalsSorted = animalsByRack[rackName].sort((a, b) => 
-      (a.cage || '').localeCompare(b.cage || '')
+    // Sort animals in this Rack by Cage (numeric cage numbers sort as numbers)
+    const rackAnimalsSorted = animalsByRack[rackName].sort((a, b) =>
+      String(a.cage || '').localeCompare(String(b.cage || ''), undefined, { numeric: true })
     );
 
     let lastCage = null;
     rackAnimalsSorted.forEach(a => {
       const isNewCage = a.cage !== lastCage;
       const row = [
-        isNewCage ? (a.cage || 'N/A') : '',
+        isNewCage ? cageLabel(a) : '',
         a.id,
         a.mark,
         a.sex,

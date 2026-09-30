@@ -178,7 +178,7 @@ def get_rack(rack_id: int, db: Session = Depends(get_db)):
 
 @app.get("/cages/{cage_id}/animals", response_model=List[schemas.Animal])
 def get_cage_animals(cage_id: int, db: Session = Depends(get_db)):
-    # Feature B: Return ONLY "Vivo" animals
+    # Feature B: Return ONLY live animals
     animals = db.query(models.Animal).filter(
         models.Animal.cage_id == cage_id,
         models.Animal.status == models.AnimalStatus.ALIVE
@@ -260,7 +260,7 @@ def swap_cage_positions(swap: schemas.CageSwapPositions, db: Session = Depends(g
 
 @app.get("/animals/history", response_model=List[schemas.Animal])
 def get_animals_history(limit: int = 500, offset: int = 0, db: Session = Depends(get_db)):
-    # Feature C: Return "Muerto" or "Eliminado" animals
+    # Feature C: Return dead or eliminated animals
     limit = max(1, min(limit, 500))
     offset = max(0, offset)
     animals = db.query(models.Animal).filter(
@@ -296,6 +296,8 @@ def get_statistics(db: Session = Depends(get_db)):
         cage_display = cage.display_id if cage else "N/A"
         
         live_animals.append({
+            "rack": cage.rack.name if cage and cage.rack else None,
+            "position": f"{chr(64 + cage.column)}{cage.row}" if cage else None,
             "id": animal.id,
             "sex": sex,
             "genotype": gen,
@@ -429,6 +431,16 @@ def end_breeding_session(cage_id: int, end_data: schemas.BreedingEnd, db: Sessio
     if not cage:
         raise HTTPException(status_code=404, detail="Cage not found")
     
+    if end_data.target_option not in ("Home", "New"):
+        raise HTTPException(status_code=400, detail="target_option must be 'Home' or 'New'")
+    if end_data.target_option == "New":
+        if not end_data.new_cage_id:
+            raise HTTPException(status_code=400, detail="Select the cage the animals will move to")
+        if end_data.new_cage_id == cage_id:
+            raise HTTPException(status_code=400, detail="The new cage must be different from the breeding cage")
+        if not db.query(models.Cage).filter(models.Cage.id == end_data.new_cage_id).first():
+            raise HTTPException(status_code=404, detail="Destination cage not found")
+
     # 1. Unmark cage
     cage.is_breeding_pair = False
     
@@ -442,11 +454,10 @@ def end_breeding_session(cage_id: int, end_data: schemas.BreedingEnd, db: Sessio
         if end_data.target_option == "Home" and animal.previous_cage_id:
             animal.cage_id = animal.previous_cage_id
             animal.previous_cage_id = None
-        elif end_data.target_option == "New" and end_data.new_cage_id:
+        elif end_data.target_option == "New":
             animal.cage_id = end_data.new_cage_id
             animal.previous_cage_id = None
-        # else: no valid destination given — leave the animal in the breeding
-        # cage and keep previous_cage_id so it can still be sent home later.
+        # else ("Home" without a recorded home cage): the animal stays where it is.
         
     try:
         db.commit()
@@ -463,16 +474,28 @@ def merge_cages(merge_data: schemas.CageMerge, db: Session = Depends(get_db)):
     
     if not source_cage or not dest_cage:
         raise HTTPException(status_code=404, detail="Source or destination cage not found")
+    if source_cage.id == dest_cage.id:
+        raise HTTPException(status_code=400, detail="Source and destination cages must be different")
     
     # 1. Relocate all live animals from source to destination
     animals = db.query(models.Animal).filter(
         models.Animal.cage_id == merge_data.source_cage_id,
         models.Animal.status == models.AnimalStatus.ALIVE
     ).all()
-    
+
+    # previous_cage_id is the home an animal returns to when a breeding session ends.
+    # Animals joining a breeding cage from a regular cage get that cage as home
+    # (any older value is stale); animals already in a breeding session keep theirs.
+    joins_breeding = dest_cage.is_breeding_pair and not source_cage.is_breeding_pair
     for animal in animals:
-        animal.previous_cage_id = merge_data.source_cage_id
-        animal.cage_id = merge_data.destination_cage_id
+        if joins_breeding:
+            animal.previous_cage_id = source_cage.id
+        animal.cage_id = dest_cage.id
+
+    # A breeding group moved to another cage stays a breeding group
+    if source_cage.is_breeding_pair:
+        dest_cage.is_breeding_pair = True
+        source_cage.is_breeding_pair = False
         
     try:
         db.commit()
@@ -592,6 +615,8 @@ async def import_animals_csv(file: UploadFile = File(...), db: Session = Depends
 
             genotype = row.get("Genotype", "")
             status_str = row.get("Status", "Vivo").strip()
+            # Accept the English labels shown in the UI as well as the stored values
+            status_str = {"alive": "Vivo", "dead": "Muerto", "eliminated": "Eliminado"}.get(status_str.lower(), status_str)
             status = models.AnimalStatus(status_str)
 
             # Find cage by cage_number if provided, otherwise by position label

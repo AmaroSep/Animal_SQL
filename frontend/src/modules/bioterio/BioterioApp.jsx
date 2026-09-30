@@ -4,6 +4,7 @@ import CageModal from './components/CageModal';
 import StatisticsDashboard from './components/StatisticsDashboard';
 import AgeRiverView from './components/AgeRiverView';
 import { LayoutGrid, Database, Activity, RefreshCw, Plus, History, ChevronLeft, Skull, Trash2, BarChart3, Waves, X, Download, Upload, Home } from 'lucide-react';
+import { animalStatusLabel } from '../../utils/labels';
 import { fetchRacks, fetchRack, createAnimal, fetchHistory, fetchStatistics, updateAnimal, importAnimals, swapCagePositions } from '../../services/api';
 
 export default function BioterioApp() {
@@ -69,6 +70,8 @@ export default function BioterioApp() {
     try {
       const data = await fetchRack(selectedRackId);
       setRackData(data);
+      // Keep every rack's occupancy current for the cage pickers
+      setRacks(await fetchRacks());
     } catch (err) {
       console.error('Error loading rack details:', err);
     }
@@ -96,7 +99,7 @@ export default function BioterioApp() {
     e.preventDefault();
     try {
       if (isEditing) {
-        if (!newAnimal.cage_id) { alert('Selecciona una jaula'); return; }
+        if (!newAnimal.cage_id) { alert('Select a cage'); return; }
         await updateAnimal(editingAnimalId, {
           sex: newAnimal.sex,
           dob: newAnimal.dob,
@@ -104,9 +107,9 @@ export default function BioterioApp() {
           genotype: newAnimal.genotype,
           cage_id: newAnimal.cage_id
         });
-        alert('Animal actualizado');
+        alert('Animal updated');
       } else {
-        if (!newAnimal.cage_id) { alert('Selecciona una jaula'); return; }
+        if (!newAnimal.cage_id) { alert('Select a cage'); return; }
         await createAnimal({
           sex: newAnimal.sex,
           dob: newAnimal.dob,
@@ -114,7 +117,7 @@ export default function BioterioApp() {
           genotype: newAnimal.genotype,
           cage_id: newAnimal.cage_id
         });
-        alert('Animal registrado');
+        alert('Animal registered');
       }
       setShowAddModal(false);
       setIsEditing(false);
@@ -122,7 +125,7 @@ export default function BioterioApp() {
       loadRackDetails();
     } catch (err) {
       console.error(err);
-      alert(isEditing ? 'Error al actualizar animal' : 'Error al registrar animal');
+      alert(isEditing ? 'Error updating animal' : 'Error registering animal');
     }
   };
 
@@ -158,7 +161,7 @@ export default function BioterioApp() {
       await swapCagePositions(draggedCage.id, targetCage.id);
       await loadRackDetails();
     } catch (err) {
-      alert('Error al mover jaula: ' + err.message);
+      alert('Error moving cage: ' + err.message);
     } finally {
       setDraggedCage(null);
       setDragOverCage(null);
@@ -471,7 +474,7 @@ export default function BioterioApp() {
                       <div className={`absolute inset-0 transition-colors duration-500 ${cage.is_breeding_pair ? 'bg-pink-500/0 group-hover:bg-pink-500/10' : 'bg-biotech-accent/0 group-hover:bg-biotech-accent/5'}`}></div>
                     )}
                     
-                    {/* Número correlativo: solo si tiene animales */}
+                    {/* Cage number: only when the cage is in use */}
                     {(hasAnimals || cage.is_breeding_pair) && cage.cage_number != null && (
                       <span className={`text-sm font-mono font-black transition-colors ${cage.is_breeding_pair ? 'text-pink-400/40 group-hover:text-pink-400' : 'text-white/20 group-hover:text-biotech-accent'}`}>
                         #{cage.cage_number}
@@ -491,7 +494,7 @@ export default function BioterioApp() {
                       </span>
                     )}
 
-                    {/* Posición física: siempre visible si hay animales */}
+                    {/* Physical position: always visible when the cage is in use */}
                     {(hasAnimals || cage.is_breeding_pair) && (
                       <span className={`text-[11px] font-mono mt-0.5 transition-colors ${cage.is_breeding_pair ? 'text-pink-400/30 group-hover:text-pink-300/60' : 'text-white/15 group-hover:text-white/40'}`}>
                         {String.fromCharCode(64 + cage.column)}{cage.row}
@@ -521,12 +524,12 @@ export default function BioterioApp() {
                 <table className="w-full text-left border-separate border-spacing-y-2">
                   <thead>
                     <tr className="text-white/30 text-[10px] uppercase tracking-widest font-black">
-                      <th className="px-6 py-4">Marca / ID</th>
-                      <th className="px-6 py-4">Estado</th>
-                      <th className="px-6 py-4">Razón</th>
-                      <th className="px-6 py-4">Nac.</th>
-                      <th className="px-6 py-4">Genotipo</th>
-                      <th className="px-6 py-4">Edad</th>
+                      <th className="px-6 py-4">Mark / ID</th>
+                      <th className="px-6 py-4">Status</th>
+                      <th className="px-6 py-4">Reason</th>
+                      <th className="px-6 py-4">DOB</th>
+                      <th className="px-6 py-4">Genotype</th>
+                      <th className="px-6 py-4">Age</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -538,7 +541,7 @@ export default function BioterioApp() {
                         </td>
                         <td className="px-6 py-4">
                           <span className="px-2 py-0.5 rounded text-[10px] font-black uppercase border border-red-500/30 text-red-400 bg-red-500/10">
-                            {animal.status}
+                            {animalStatusLabel(animal.status)}
                           </span>
                         </td>
                         <td className="px-6 py-4 text-sm italic text-white/80">{animal.elimination_reason || 'N/A'}</td>
@@ -578,7 +581,7 @@ export default function BioterioApp() {
           <div className="glass w-full max-w-xl rounded-[2.5rem] overflow-hidden border-white/20 animate-in fade-in zoom-in duration-300">
             <div className="p-8 border-b border-white/10 bg-white/5 flex items-center justify-between">
               <h2 className="text-2xl font-black tracking-tighter text-biotech-accent italic">
-                {isEditing ? 'EDITAR ANIMAL' : 'REGISTRAR ANIMAL'}
+                {isEditing ? 'EDIT ANIMAL' : 'REGISTER ANIMAL'}
               </h2>
               <button
                 onClick={() => { setShowAddModal(false); setIsEditing(false); setEditingAnimalId(null); setCageSearch(''); }}
@@ -592,7 +595,7 @@ export default function BioterioApp() {
               {/* Cage selector */}
               <div className="col-span-2 flex flex-col gap-2">
                 <label className="text-[10px] font-black uppercase tracking-widest text-white/40 ml-1">
-                  Jaula <span className="text-biotech-accent">*</span>
+                  Cage <span className="text-biotech-accent">*</span>
                 </label>
                 {(() => {
                   const allCages = racks.flatMap(r => r.cages).filter(c => c.cage_number != null);
@@ -609,8 +612,8 @@ export default function BioterioApp() {
                       <input
                         type="text"
                         placeholder={selectedCageObj
-                          ? `Jaula #${selectedCageObj.cage_number} — ${String.fromCharCode(64 + selectedCageObj.column)}${selectedCageObj.row} (${rackOf(selectedCageObj)?.name ?? ''})`
-                          : 'Buscar por nº jaula o posición...'}
+                          ? `Cage #${selectedCageObj.cage_number} — ${String.fromCharCode(64 + selectedCageObj.column)}${selectedCageObj.row} (${rackOf(selectedCageObj)?.name ?? ''})`
+                          : 'Search by cage number or position...'}
                         value={cageSearch}
                         onChange={e => { setCageSearch(e.target.value); setNewAnimal({...newAnimal, cage_id: null}); }}
                         className={`w-full bg-white/5 border rounded-xl px-4 py-3 outline-none transition-colors font-mono text-sm ${newAnimal.cage_id ? 'border-biotech-accent text-biotech-accent' : 'border-white/10 text-white'} focus:border-biotech-accent`}
@@ -618,7 +621,7 @@ export default function BioterioApp() {
                       {cageSearch && !newAnimal.cage_id && (
                         <div className="absolute z-10 top-full mt-1 w-full bg-[#0a0f1a] border border-white/10 rounded-xl overflow-hidden max-h-48 overflow-y-auto shadow-2xl">
                           {filtered.length === 0 && (
-                            <div className="px-4 py-3 text-xs text-white/20 font-mono">Sin resultados</div>
+                            <div className="px-4 py-3 text-xs text-white/20 font-mono">No results</div>
                           )}
                           {filtered.map(c => (
                             <button
@@ -652,8 +655,8 @@ export default function BioterioApp() {
                 <input required type="date" value={newAnimal.dob} onChange={e => setNewAnimal({...newAnimal, dob: e.target.value})} className="bg-white/5 border border-white/10 rounded-xl px-4 py-3 outline-none focus:border-biotech-accent transition-colors font-mono" />
               </div>
               <div className="flex flex-col gap-2">
-                <label className="text-[10px] font-black uppercase tracking-widest text-white/40 ml-1">Marca de Oreja <span className="text-biotech-accent">*</span></label>
-                <input required placeholder="Ej: OD, OI, ambas" value={newAnimal.mark} onChange={e => setNewAnimal({...newAnimal, mark: e.target.value})} className="bg-white/5 border border-white/10 rounded-xl px-4 py-3 outline-none focus:border-biotech-accent transition-colors font-mono" />
+                <label className="text-[10px] font-black uppercase tracking-widest text-white/40 ml-1">Ear Mark <span className="text-biotech-accent">*</span></label>
+                <input required placeholder="e.g. R-EAR, L-EAR, LR-EAR" value={newAnimal.mark} onChange={e => setNewAnimal({...newAnimal, mark: e.target.value})} className="bg-white/5 border border-white/10 rounded-xl px-4 py-3 outline-none focus:border-biotech-accent transition-colors font-mono" />
               </div>
               <div className="col-span-2 flex flex-col gap-2">
                 <label className="text-[10px] font-black uppercase tracking-widest text-white/40 ml-1">Genotype</label>
@@ -673,6 +676,7 @@ export default function BioterioApp() {
       {/* Modal */}
       <CageModal 
         cage={selectedCage} 
+        racks={racks}
         onClose={() => setSelectedCage(null)} 
         onUpdate={() => { loadRackDetails(); setSelectedCage(null); }}
         onAddAnimal={() => handleAddAnimalFromCage(selectedCage)}
@@ -735,7 +739,7 @@ export default function BioterioApp() {
                   <div className="relative">
                     <input 
                       type="text" 
-                      placeholder="BUSCAR POR ID, MARCA, GENOTIPO O Nº DE JAULA (#12)..."
+                      placeholder="SEARCH BY ID, MARK, GENOTYPE OR CAGE NUMBER (#12)..."
                       value={breedingSearch}
                       onChange={(e) => setBreedingSearch(e.target.value)}
                       className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-xs font-mono text-white outline-none focus:border-pink-500 transition-all"
@@ -745,8 +749,8 @@ export default function BioterioApp() {
                   <div className="grid grid-cols-1 gap-2 max-h-[40vh] overflow-y-auto pr-2 custom-scrollbar">
                     {(() => {
                       const q = breedingSearch.trim().toLowerCase();
-                      // "#12", "jaula 12" or "j12" search only by cage; a bare term also matches the cage exactly
-                      const cageQuery = q.replace(/^(#|jaula\s*|j)/, '').trim();
+                      // "#12", "cage 12" or "c12" search only by cage; a bare term also matches the cage exactly
+                      const cageQuery = q.replace(/^(#|cage\s*|jaula\s*|c|j)(?=\s*\d)/, '').trim();
                       const cageOnly = cageQuery !== q;
                       const cageMatches = (c) => cageQuery !== '' && String(c.display_id).toLowerCase() === cageQuery;
                       const rows = racks.flatMap(r => r.cages).flatMap(c => (c.animals || []).map(a => ({ a, c })))
@@ -784,7 +788,7 @@ export default function BioterioApp() {
                               <span className="font-mono text-sm text-white/80">#{animal.id} — {animal.mark}</span>
                               <span className="text-[10px] text-white/20 font-mono uppercase tracking-tighter">{animal.genotype}</span>
                               <span className="px-2 py-0.5 rounded bg-white/10 text-[10px] font-mono font-black text-white/60">
-                                Jaula {cage.cage_number != null ? `#${cage.cage_number}` : cage.display_id}
+                                Cage {cage.cage_number != null ? `#${cage.cage_number}` : cage.display_id}
                               </span>
                             </div>
                             {isSelected && <div className="w-2 h-2 rounded-full bg-pink-500 shadow-[0_0_10px_rgba(236,72,153,1)]"></div>}
@@ -829,7 +833,7 @@ export default function BioterioApp() {
                                 key={cage.id}
                                 type="button"
                                 onClick={() => setBreedingData({...breedingData, targetCageId: cage.id})}
-                                title={occupied ? `${cage.animals.length} animales` : 'Vacía'}
+                                title={occupied ? `${cage.animals.length} animals` : 'Empty'}
                                 className={`h-11 rounded-lg border flex flex-col items-center justify-center transition-all ${selected ? 'border-pink-500 bg-pink-500/20' : occupied ? 'opacity-20 cursor-not-allowed border-white/5' : 'border-white/10 bg-white/5 hover:border-pink-400/60'}`}
                                 disabled={occupied && !selected}
                               >
@@ -841,8 +845,8 @@ export default function BioterioApp() {
                         </div>
                         <p className="text-xs font-mono text-white/40">
                           {target
-                            ? <>Destino: <span className="text-pink-300 font-black">{target.r.name} · {String.fromCharCode(64 + target.c.column)}{target.c.row}{target.c.cage_number != null ? ` (#${target.c.cage_number})` : ''}</span></>
-                            : 'Elige un rack y luego una posición vacía.'}
+                            ? <>Target: <span className="text-pink-300 font-black">{target.r.name} · {String.fromCharCode(64 + target.c.column)}{target.c.row}{target.c.cage_number != null ? ` (#${target.c.cage_number})` : ''}</span></>
+                            : 'Choose a rack, then an empty position.'}
                         </p>
                       </>
                     );
