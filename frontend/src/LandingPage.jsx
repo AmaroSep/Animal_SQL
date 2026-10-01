@@ -1,6 +1,6 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Activity, ChevronRight, Grid3x3 } from 'lucide-react';
+import { Activity, ChevronRight, Grid3x3, Snowflake, Refrigerator } from 'lucide-react';
 
 const modules = [
   {
@@ -26,6 +26,30 @@ const modules = [
     borderClass: 'border-violet-500/30 hover:border-violet-400',
     iconBg: 'bg-violet-500/10 text-violet-400',
     badgeClass: 'bg-violet-500/20 text-violet-300 border-violet-500/30',
+  },
+  {
+    path: '/ln2',
+    icon: Snowflake,
+    label: 'LN2 Tank',
+    sublabel: 'Frozen cell stocks',
+    description: 'Racks, boxes and vials in the liquid nitrogen tank: freeze, thaw and find your stocks.',
+    accent: 'sky',
+    glowClass: 'shadow-[0_0_60px_rgba(56,189,248,0.15)]',
+    borderClass: 'border-sky-500/30 hover:border-sky-400',
+    iconBg: 'bg-sky-500/10 text-sky-400',
+    badgeClass: 'bg-sky-500/20 text-sky-300 border-sky-500/30',
+  },
+  {
+    path: '/m80',
+    icon: Refrigerator,
+    label: '-80 °C Freezers',
+    sublabel: 'Sample storage',
+    description: 'Freezers, compartments, racks and boxes: store, use and find your samples.',
+    accent: 'indigo',
+    glowClass: 'shadow-[0_0_60px_rgba(99,102,241,0.15)]',
+    borderClass: 'border-indigo-500/30 hover:border-indigo-400',
+    iconBg: 'bg-indigo-500/10 text-indigo-400',
+    badgeClass: 'bg-indigo-500/20 text-indigo-300 border-indigo-500/30',
   },
 ];
 

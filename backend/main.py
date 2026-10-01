@@ -7,7 +7,7 @@ from fastapi.responses import StreamingResponse
 import io, csv, os
 import models, schemas, database
 from database import engine, get_db
-from routers import responsibles, em_grids
+from routers import responsibles, em_grids, ln2, m80
 from utils import calculate_age_display, calculate_age_months
 
 # Create tables
@@ -17,6 +17,8 @@ app = FastAPI(title="Bioterio Management System API")
 
 app.include_router(responsibles.router)
 app.include_router(em_grids.router)
+app.include_router(ln2.router)
+app.include_router(m80.router)
 
 app.add_middleware(
     CORSMiddleware,

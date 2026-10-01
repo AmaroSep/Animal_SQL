@@ -224,3 +224,254 @@ class EMGridBoxSummary(EMGridBoxBase):
 
 class EMGridBoxDetail(EMGridBoxSummary):
     grids: List[EMGrid] = []
+
+# ── LN2 tank ───────────────────────────────────────────────────────────────
+
+class LNVialData(BaseModel):
+    cell_line: str
+    protein_expression: Optional[str] = None
+    culture_method: Optional[str] = None
+    freeze_date: Optional[date] = None
+    frozen_by: Optional[str] = None
+    freeze_note: Optional[str] = None
+    cells_per_vial: Optional[str] = None
+    comment: Optional[str] = None
+    additional_comment: Optional[str] = None
+    master_stock: bool = False
+
+class LNVialBatchCreate(BaseModel):
+    box_id: int
+    wells: List[int]
+    data: LNVialData
+
+class LNVialUpdate(BaseModel):
+    box_id: Optional[int] = None
+    well: Optional[int] = None
+    cell_line: Optional[str] = None
+    protein_expression: Optional[str] = None
+    culture_method: Optional[str] = None
+    freeze_date: Optional[date] = None
+    frozen_by: Optional[str] = None
+    freeze_note: Optional[str] = None
+    cells_per_vial: Optional[str] = None
+    comment: Optional[str] = None
+    additional_comment: Optional[str] = None
+    master_stock: Optional[bool] = None
+    removed_date: Optional[date] = None
+    removed_by: Optional[str] = None
+    removed_note: Optional[str] = None
+
+class LNVialRemove(BaseModel):
+    status: models.LNVialStatus
+    removed_date: Optional[date] = None
+    removed_by: Optional[str] = None
+    removed_note: Optional[str] = None
+
+class LNVial(LNVialData):
+    id: int
+    box_id: int
+    well: int
+    status: models.LNVialStatus
+    removed_date: Optional[date] = None
+    removed_by: Optional[str] = None
+    removed_note: Optional[str] = None
+    rack_number: Optional[int] = None
+    box_number: Optional[int] = None
+
+    class Config:
+        from_attributes = True
+
+class LNBoxUpdate(BaseModel):
+    label: Optional[str] = None
+    restriction: Optional[str] = None
+    notes: Optional[str] = None
+
+class LNBoxSummary(BaseModel):
+    id: int
+    rack_number: int
+    number: int
+    label: Optional[str] = None
+    restriction: Optional[str] = None
+    notes: Optional[str] = None
+    rows: int
+    columns: int
+    capacity: int
+    occupied: int
+
+class LNBoxDetail(LNBoxSummary):
+    vials: List[LNVial] = []
+
+class LNRackSummary(BaseModel):
+    id: int
+    number: int
+    boxes: List[LNBoxSummary] = []
+
+class LNImportBox(BaseModel):
+    rack: int
+    box: int
+    label: Optional[str] = None
+    restriction: Optional[str] = None
+    notes: Optional[str] = None
+
+class LNImportVial(LNVialData):
+    rack: int
+    box: int
+    well: int
+    status: models.LNVialStatus = models.LNVialStatus.IN_TANK
+    removed_date: Optional[date] = None
+    removed_by: Optional[str] = None
+    removed_note: Optional[str] = None
+
+class LNImport(BaseModel):
+    boxes: List[LNImportBox] = []
+    vials: List[LNImportVial] = []
+
+# ── -80 °C freezers ────────────────────────────────────────────────────────
+
+class M80FreezerCreate(BaseModel):
+    name: str
+    room: Optional[str] = None
+    notes: Optional[str] = None
+    compartments: int = 2          # created empty, numbered from the top
+
+class M80FreezerUpdate(BaseModel):
+    name: Optional[str] = None
+    room: Optional[str] = None
+    notes: Optional[str] = None
+
+class M80CompartmentCreate(BaseModel):
+    freezer_id: int
+    name: Optional[str] = None
+
+class M80CompartmentUpdate(BaseModel):
+    name: Optional[str] = None
+
+class M80RackCreate(BaseModel):
+    compartment_id: int
+    levels: int
+    depth: int
+    label: Optional[str] = None
+
+class M80RackUpdate(BaseModel):
+    levels: Optional[int] = None
+    depth: Optional[int] = None
+    label: Optional[str] = None
+
+class M80BoxCreate(BaseModel):
+    rack_id: int
+    level: int
+    slot: int
+    rows: int = 9
+    columns: int = 9
+    label: Optional[str] = None
+
+class M80BoxUpdate(BaseModel):
+    rack_id: Optional[int] = None
+    level: Optional[int] = None
+    slot: Optional[int] = None
+    rows: Optional[int] = None
+    columns: Optional[int] = None
+    label: Optional[str] = None
+    restriction: Optional[str] = None
+    notes: Optional[str] = None
+
+class M80TubeData(BaseModel):
+    sample_name: str
+    sample_type: Optional[str] = None
+    source: Optional[str] = None
+    concentration: Optional[str] = None
+    volume: Optional[str] = None
+    frozen_date: Optional[date] = None
+    frozen_by: Optional[str] = None
+    comment: Optional[str] = None
+    reserved: bool = False
+
+class M80TubeBatchCreate(BaseModel):
+    box_id: int
+    wells: List[int]
+    data: M80TubeData
+
+class M80TubeUpdate(BaseModel):
+    box_id: Optional[int] = None
+    well: Optional[int] = None
+    sample_name: Optional[str] = None
+    sample_type: Optional[str] = None
+    source: Optional[str] = None
+    concentration: Optional[str] = None
+    volume: Optional[str] = None
+    frozen_date: Optional[date] = None
+    frozen_by: Optional[str] = None
+    comment: Optional[str] = None
+    reserved: Optional[bool] = None
+    removed_date: Optional[date] = None
+    removed_by: Optional[str] = None
+    removed_note: Optional[str] = None
+
+class M80TubeRemove(BaseModel):
+    status: models.M80TubeStatus
+    removed_date: Optional[date] = None
+    removed_by: Optional[str] = None
+    removed_note: Optional[str] = None
+
+class M80Location(BaseModel):
+    freezer: str
+    room: Optional[str] = None
+    compartment: int
+    compartment_name: Optional[str] = None
+    rack: int
+    level: int
+    slot: int
+
+class M80Tube(M80TubeData):
+    id: int
+    box_id: int
+    well: int
+    status: models.M80TubeStatus
+    removed_date: Optional[date] = None
+    removed_by: Optional[str] = None
+    removed_note: Optional[str] = None
+    location: Optional[M80Location] = None
+    box_label: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+class M80BoxSummary(BaseModel):
+    id: int
+    rack_id: int
+    level: int
+    slot: int
+    rows: int
+    columns: int
+    label: Optional[str] = None
+    restriction: Optional[str] = None
+    notes: Optional[str] = None
+    capacity: int
+    occupied: int
+
+class M80BoxDetail(M80BoxSummary):
+    location: M80Location
+    tubes: List[M80Tube] = []
+
+class M80RackOut(BaseModel):
+    id: int
+    compartment_id: int
+    number: int
+    label: Optional[str] = None
+    levels: int
+    depth: int
+    boxes: List[M80BoxSummary] = []
+
+class M80CompartmentOut(BaseModel):
+    id: int
+    freezer_id: int
+    number: int
+    name: Optional[str] = None
+    racks: List[M80RackOut] = []
+
+class M80FreezerOut(BaseModel):
+    id: int
+    name: str
+    room: Optional[str] = None
+    notes: Optional[str] = None
+    compartments: List[M80CompartmentOut] = []

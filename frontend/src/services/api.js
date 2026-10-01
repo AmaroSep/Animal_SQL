@@ -78,3 +78,50 @@ export const fetchEMGrids = ({ q, status } = {}) => {
 export const createEMGrid = (data) => request('/em/grids', json('POST', data));
 export const updateEMGrid = (id, data) => request(`/em/grids/${id}`, json('PUT', data));
 export const deleteEMGrid = (id) => request(`/em/grids/${id}`, { method: 'DELETE' });
+
+// ── LN2 tank ───────────────────────────────────────────────────────────────
+
+export const fetchLNTank = () => request('/ln2/tank');
+export const fetchLNBox = (id) => request(`/ln2/boxes/${id}`);
+export const updateLNBox = (id, data) => request(`/ln2/boxes/${id}`, json('PUT', data));
+export const fetchLNVials = ({ q, status } = {}) => {
+  const params = new URLSearchParams();
+  if (q) params.set('q', q);
+  if (status) params.set('status', status);
+  const qs = params.toString();
+  return request(`/ln2/vials${qs ? `?${qs}` : ''}`);
+};
+export const createLNVials = (data) => request('/ln2/vials/batch', json('POST', data));
+export const updateLNVial = (id, data) => request(`/ln2/vials/${id}`, json('PUT', data));
+export const removeLNVial = (id, data) => request(`/ln2/vials/${id}/remove`, json('POST', data));
+export const restoreLNVial = (id) => request(`/ln2/vials/${id}/restore`, { method: 'POST' });
+export const deleteLNVial = (id) => request(`/ln2/vials/${id}`, { method: 'DELETE' });
+
+// ── -80 freezers ───────────────────────────────────────────────────────────
+
+export const fetchM80Freezers = () => request('/m80/freezers');
+export const createM80Freezer = (data) => request('/m80/freezers', json('POST', data));
+export const updateM80Freezer = (id, data) => request(`/m80/freezers/${id}`, json('PUT', data));
+export const deleteM80Freezer = (id) => request(`/m80/freezers/${id}`, { method: 'DELETE' });
+export const createM80Compartment = (data) => request('/m80/compartments', json('POST', data));
+export const updateM80Compartment = (id, data) => request(`/m80/compartments/${id}`, json('PUT', data));
+export const deleteM80Compartment = (id) => request(`/m80/compartments/${id}`, { method: 'DELETE' });
+export const createM80Rack = (data) => request('/m80/racks', json('POST', data));
+export const updateM80Rack = (id, data) => request(`/m80/racks/${id}`, json('PUT', data));
+export const deleteM80Rack = (id) => request(`/m80/racks/${id}`, { method: 'DELETE' });
+export const fetchM80Box = (id) => request(`/m80/boxes/${id}`);
+export const createM80Box = (data) => request('/m80/boxes', json('POST', data));
+export const updateM80Box = (id, data) => request(`/m80/boxes/${id}`, json('PUT', data));
+export const deleteM80Box = (id) => request(`/m80/boxes/${id}`, { method: 'DELETE' });
+export const fetchM80Tubes = ({ q, status } = {}) => {
+  const params = new URLSearchParams();
+  if (q) params.set('q', q);
+  if (status) params.set('status', status);
+  const qs = params.toString();
+  return request(`/m80/tubes${qs ? `?${qs}` : ''}`);
+};
+export const createM80Tubes = (data) => request('/m80/tubes/batch', json('POST', data));
+export const updateM80Tube = (id, data) => request(`/m80/tubes/${id}`, json('PUT', data));
+export const removeM80Tube = (id, data) => request(`/m80/tubes/${id}/remove`, json('POST', data));
+export const restoreM80Tube = (id) => request(`/m80/tubes/${id}/restore`, { method: 'POST' });
+export const deleteM80Tube = (id) => request(`/m80/tubes/${id}`, { method: 'DELETE' });
