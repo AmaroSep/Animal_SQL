@@ -6,7 +6,9 @@ import AgeRiverView from './components/AgeRiverView';
 import { LayoutGrid, Database, Activity, RefreshCw, Plus, History, ChevronLeft, Skull, Trash2, BarChart3, Waves, X, Download, Upload, Home } from 'lucide-react';
 import { animalStatusLabel } from '../../utils/labels';
 import { useAuth } from '../../auth/AuthContext';
-import { apiUrl, fetchDirectory, fetchRacks, fetchRack, createAnimal, fetchHistory, fetchStatistics, updateAnimal, importAnimals, swapCagePositions } from '../../services/api';
+import ColonyImportModal from './components/ColonyImportModal';
+import { exportColonyWorkbook } from '../../utils/colonyFormat';
+import { fetchColonyExport, fetchDirectory, fetchRacks, fetchRack, createAnimal, fetchHistory, fetchStatistics, updateAnimal, swapCagePositions } from '../../services/api';
 
 export default function BioterioApp() {
   const navigate = useNavigate();
@@ -192,33 +194,18 @@ export default function BioterioApp() {
     }
   };
 
-  const handleExportCSV = () => {
-    // Open the backend CSV export link in a new tab for download
-    window.open(apiUrl('/export/animals/csv'), '_blank');
-  };
-
-  const handleImportCSV = async (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    
+  // Shared colony workbook (agreed lab format)
+  const [showColonyImport, setShowColonyImport] = useState(false);
+  const [exportMenu, setExportMenu] = useState(false);
+  const handleExportColony = async (scope) => {
+    setExportMenu(false);
     try {
-      setLoading(true);
-      const result = await importAnimals(file);
-      let message = `Import Successful!\nUpdated: ${result.updated}\nCreated: ${result.created}`;
-      if (result.skipped && result.skipped.length > 0) {
-        message += `\n\nSkipped ${result.skipped.length} row(s):\n` +
-          result.skipped.map(s => `Line ${s.line} (${s.mark}): ${s.reason}`).join('\n');
-      }
-      alert(message);
-      loadRackDetails();
-      loadStatistics();
+      const animals = await fetchColonyExport(scope);
+      if (!animals.length) { alert('There are no animals in your cages to export.'); return; }
+      const who = scope === 'all' ? 'Colony' : `${user?.initials || user?.username || 'My'} Colony`;
+      exportColonyWorkbook(animals, who);
     } catch (err) {
-      console.error(err);
-      alert('Error importing CSV: ' + err.message);
-    } finally {
-      setLoading(false);
-      // Reset input
-      e.target.value = '';
+      alert('Export failed: ' + err.message);
     }
   };
 
@@ -334,25 +321,28 @@ export default function BioterioApp() {
             History
           </button>
           
-          <button 
-            onClick={handleExportCSV}
-            className="flex items-center gap-2 px-6 py-3 bg-white/5 text-white/40 hover:bg-biotech-accent hover:text-biotech-blue rounded-xl text-xs font-black uppercase tracking-widest transition-all border border-transparent shadow-inner group"
-          >
-            <Download size={16} className="group-hover:translate-y-0.5 transition-transform" />
-            Export CSV
-          </button>
+          <div className="relative">
+            <button
+              onClick={() => (isAdmin ? setExportMenu(!exportMenu) : handleExportColony('mine'))}
+              className="flex items-center gap-2 px-6 py-3 bg-white/5 text-white/40 hover:bg-biotech-accent hover:text-biotech-blue rounded-xl text-xs font-black uppercase tracking-widest transition-all border border-transparent shadow-inner group"
+            >
+              <Download size={16} className="group-hover:translate-y-0.5 transition-transform" />
+              Export Excel
+            </button>
+            {exportMenu && (
+              <div className="absolute z-30 mt-2 right-0 w-48 glass rounded-xl border-white/20 py-1">
+                <button onClick={() => handleExportColony('mine')} className="w-full text-left px-4 py-2.5 text-xs font-bold hover:bg-white/10">My cages</button>
+                <button onClick={() => handleExportColony('all')} className="w-full text-left px-4 py-2.5 text-xs font-bold hover:bg-white/10">Whole colony (incl. history)</button>
+              </div>
+            )}
+          </div>
 
           {isAdmin && (
-          <label className="flex items-center gap-2 px-6 py-3 bg-white/5 text-white/40 hover:bg-biotech-accent hover:text-biotech-blue rounded-xl text-xs font-black uppercase tracking-widest transition-all border border-transparent shadow-inner group cursor-pointer">
+          <button onClick={() => setShowColonyImport(true)}
+            className="flex items-center gap-2 px-6 py-3 bg-white/5 text-white/40 hover:bg-biotech-accent hover:text-biotech-blue rounded-xl text-xs font-black uppercase tracking-widest transition-all border border-transparent shadow-inner group">
             <Upload size={16} className="group-hover:-translate-y-0.5 transition-transform" />
-            Import CSV
-            <input 
-              type="file" 
-              accept=".csv" 
-              className="hidden" 
-              onChange={handleImportCSV} 
-            />
-          </label>
+            Import Excel
+          </button>
           )}
 
           <button 
@@ -796,6 +786,10 @@ export default function BioterioApp() {
         onEditAnimal={handleEditAnimal}
         onMergeStart={handleMergeStart}
       />
+      {showColonyImport && (
+        <ColonyImportModal directory={directory} onClose={() => setShowColonyImport(false)}
+          onImported={() => { loadRackDetails(); loadStatistics(); }} />
+      )}
       {/* Breeding Wizard Modal */}
       {showBreedingWizard && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/90 backdrop-blur-xl">

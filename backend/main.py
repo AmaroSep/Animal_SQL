@@ -7,7 +7,7 @@ from fastapi.responses import StreamingResponse
 import io, csv, os
 import models, schemas, database
 from database import engine, get_db
-from routers import responsibles, em_grids, ln2, m80, auth
+from routers import responsibles, em_grids, ln2, m80, auth, colony_io
 from security import auth_guard
 import record_tracking  # noqa: F401  (registers the created_by / updated_by hooks)
 from ownership import acting_user, check_animal, check_cage, is_admin, release_if_empty
@@ -23,6 +23,7 @@ app.include_router(responsibles.router)
 app.include_router(em_grids.router)
 app.include_router(ln2.router)
 app.include_router(m80.router)
+app.include_router(colony_io.router)
 
 # Every request needs a signed-in user (see security.py). Registered before CORS so
 # that CORS stays the outermost layer and also decorates 401/403 responses.
@@ -126,6 +127,10 @@ def run_migrations():
             END IF;
         END$$;
         """,
+        # v7: parents and wean date (shared colony format)
+        "ALTER TABLE animals ADD COLUMN IF NOT EXISTS parent_1 VARCHAR",
+        "ALTER TABLE animals ADD COLUMN IF NOT EXISTS parent_2 VARCHAR",
+        "ALTER TABLE animals ADD COLUMN IF NOT EXISTS wean_date DATE",
         # v6: extra animal / cage information (cage card, lineage, notes)
         "ALTER TABLE animals ADD COLUMN IF NOT EXISTS external_id VARCHAR",
         "ALTER TABLE animals ADD COLUMN IF NOT EXISTS origin_cage VARCHAR",

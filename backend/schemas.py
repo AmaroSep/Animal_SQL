@@ -16,6 +16,9 @@ class AnimalBase(BaseModel):
     external_id: Optional[str] = None
     origin_cage: Optional[str] = None
     notes: Optional[str] = None
+    parent_1: Optional[str] = None
+    parent_2: Optional[str] = None
+    wean_date: Optional[date] = None
 
 class AnimalCreate(AnimalBase):
     cage_id: int
@@ -29,6 +32,9 @@ class AnimalUpdate(BaseModel):
     external_id: Optional[str] = None
     origin_cage: Optional[str] = None
     notes: Optional[str] = None
+    parent_1: Optional[str] = None
+    parent_2: Optional[str] = None
+    wean_date: Optional[date] = None
 
 class Animal(AnimalBase):
     id: int
@@ -564,3 +570,30 @@ class AuditEntry(BaseModel):
 
     class Config:
         from_attributes = True
+
+# ── Colony exchange format (shared Excel) ─────────────────────────────────
+
+class ColonyRow(BaseModel):
+    line: Optional[int] = None              # row in the source sheet, for messages
+    rack: Optional[int] = None
+    row: Optional[int] = None
+    column: Optional[str] = None            # A-G
+    cage_card: Optional[str] = None
+    animal_code: Optional[str] = None
+    mark: Optional[str] = None
+    dob: Optional[date] = None
+    sex: Optional[str] = None
+    genotype: Optional[str] = None
+    status: Optional[str] = None            # Alive / Dead / Eliminated (or Spanish values)
+    status_date: Optional[date] = None
+    parent_1: Optional[str] = None
+    parent_2: Optional[str] = None
+    responsible: Optional[str] = None
+    elimination_reason: Optional[str] = None
+    wean_date: Optional[date] = None
+    breeder: bool = False
+    notes: Optional[str] = None
+
+class ColonyImport(BaseModel):
+    rows: List[ColonyRow]
+    default_responsible: Optional[str] = None

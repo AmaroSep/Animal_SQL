@@ -88,6 +88,9 @@ class Animal(Base):
     external_id = Column(String, nullable=True)        # individual ID from other records (e.g. HF134)
     origin_cage = Column(String, nullable=True)        # cage it came from / was born in (lineage)
     notes = Column(Text, nullable=True)                # experiments, samples, projects
+    parent_1 = Column(String, nullable=True)           # parents' animal codes (colony format)
+    parent_2 = Column(String, nullable=True)
+    wean_date = Column(Date, nullable=True)
 
     cage = relationship("Cage", back_populates="animals", foreign_keys=[cage_id])
 

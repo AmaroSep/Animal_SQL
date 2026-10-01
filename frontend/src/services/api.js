@@ -64,6 +64,9 @@ export const updateAnimalStatus = (id, status, reason = null) =>
   request(`/animals/${id}/status`, json('PATCH', { status, reason }));
 export const fetchHistory = () => request('/animals/history');
 export const fetchStatistics = (scope = 'mine') => request(`/statistics?scope=${scope}`);
+export const fetchColonyExport = (scope = 'mine') => request(`/animals/export?scope=${scope}`);
+export const importColonyRows = (rows, defaultResponsible, dryRun = true) =>
+  request(`/import/animals/rows?dry_run=${dryRun}`, json('POST', { rows, default_responsible: defaultResponsible }));
 
 export const importAnimals = (file) => {
   const formData = new FormData();
