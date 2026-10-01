@@ -50,9 +50,21 @@ class CageBase(BaseModel):
     is_breeding_pair: bool = False
     cage_number: Optional[int] = None
 
+class CageOwner(BaseModel):
+    id: int
+    username: str
+    full_name: Optional[str] = None
+    initials: Optional[str] = None
+    color: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
 class Cage(CageBase):
     id: int
     display_id: str
+    owner_id: Optional[int] = None
+    owner: Optional[CageOwner] = None
     animals: List[Animal] = []
 
     class Config:
@@ -60,6 +72,10 @@ class Cage(CageBase):
 
 class CageUpdate(BaseModel):
     is_breeding_pair: bool
+
+class CageOwnerUpdate(BaseModel):
+    cage_ids: List[int]
+    owner_id: int
 
 class CageNumberUpdate(BaseModel):
     cage_number: Optional[int] = None
@@ -500,6 +516,7 @@ class UserOut(BaseModel):
     initials: Optional[str] = None
     role: models.UserRole
     active: bool
+    color: Optional[str] = None
     last_login: Optional[datetime] = None
 
     class Config:
@@ -517,7 +534,11 @@ class UserUpdate(BaseModel):
     initials: Optional[str] = None
     role: Optional[models.UserRole] = None
     active: Optional[bool] = None
+    color: Optional[str] = None
     password: Optional[str] = None      # admin reset
+
+class ColorUpdate(BaseModel):
+    color: str
 
 class PasswordChange(BaseModel):
     current_password: str

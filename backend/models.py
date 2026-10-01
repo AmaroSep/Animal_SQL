@@ -52,8 +52,12 @@ class Cage(Base):
     rack_id = Column(Integer, ForeignKey("racks.id"))
     is_breeding_pair = Column(Boolean, default=False)
     cage_number = Column(Integer, nullable=True)
+    # Responsible user: only they (or an admin) may change the cage and its animals.
+    # Empty cages have none; whoever puts animals in one takes it (see ownership.py).
+    owner_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
 
     rack = relationship("Rack", back_populates="cages")
+    owner = relationship("User")
     animals = relationship("Animal", back_populates="cage", foreign_keys="Animal.cage_id")
 
     @property
@@ -334,6 +338,7 @@ class User(Base):
     password_hash = Column(String, nullable=False)
     role = Column(SqlEnum(UserRole, values_callable=lambda e: [m.value for m in e]), nullable=False, default=UserRole.VIEWER)
     active = Column(Boolean, default=True, nullable=False)
+    color = Column(String, nullable=True)  # hex colour marking this user's cages
     created_at = Column(DateTime, default=datetime.utcnow)
     last_login = Column(DateTime, nullable=True)
 

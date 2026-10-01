@@ -5,7 +5,8 @@ import StatisticsDashboard from './components/StatisticsDashboard';
 import AgeRiverView from './components/AgeRiverView';
 import { LayoutGrid, Database, Activity, RefreshCw, Plus, History, ChevronLeft, Skull, Trash2, BarChart3, Waves, X, Download, Upload, Home } from 'lucide-react';
 import { animalStatusLabel } from '../../utils/labels';
-import { apiUrl, fetchRacks, fetchRack, createAnimal, fetchHistory, fetchStatistics, updateAnimal, importAnimals, swapCagePositions } from '../../services/api';
+import { useAuth } from '../../auth/AuthContext';
+import { apiUrl, fetchDirectory, fetchRacks, fetchRack, createAnimal, fetchHistory, fetchStatistics, updateAnimal, importAnimals, swapCagePositions } from '../../services/api';
 
 export default function BioterioApp() {
   const navigate = useNavigate();
@@ -50,6 +51,15 @@ export default function BioterioApp() {
   // Drag & drop reposition state
   const [draggedCage, setDraggedCage] = useState(null);
   const [dragOverCage, setDragOverCage] = useState(null);
+
+  // Cage ownership: everyone sees everything; only the responsible user (or an admin) changes a cage
+  const { user, isAdmin, canEdit } = useAuth();
+  const [directory, setDirectory] = useState([]);
+  const [onlyMine, setOnlyMine] = useState(false);
+  useEffect(() => { fetchDirectory().then(setDirectory).catch(() => {}); }, []);
+  const isMine = (cage) => cage.owner_id === user?.id;
+  const canModifyCage = (cage) => !!cage && canEdit && (isAdmin || isMine(cage) ||
+    (!cage.owner_id && !(cage.animals?.length) && !cage.is_breeding_pair));
 
   const loadData = async () => {
     setLoading(true);
@@ -315,6 +325,7 @@ export default function BioterioApp() {
             Export CSV
           </button>
 
+          {isAdmin && (
           <label className="flex items-center gap-2 px-6 py-3 bg-white/5 text-white/40 hover:bg-biotech-accent hover:text-biotech-blue rounded-xl text-xs font-black uppercase tracking-widest transition-all border border-transparent shadow-inner group cursor-pointer">
             <Upload size={16} className="group-hover:-translate-y-0.5 transition-transform" />
             Import CSV
@@ -325,6 +336,7 @@ export default function BioterioApp() {
               onChange={handleImportCSV} 
             />
           </label>
+          )}
 
           <button 
             onClick={() => {
@@ -431,15 +443,43 @@ export default function BioterioApp() {
               </div>
             </div>
 
+            {/* Responsible users with cages in this rack */}
+            {(() => {
+              const counts = {};
+              rackData?.cages.forEach(c => { if (c.owner) counts[c.owner.id] = (counts[c.owner.id] || 0) + 1; });
+              const owners = directory.filter(u => counts[u.id]);
+              return (
+                <div className="flex flex-wrap items-center gap-2 mb-3">
+                  <span className="text-[10px] font-black uppercase tracking-widest text-white/30 mr-1">Responsible</span>
+                  {owners.length === 0 && <span className="text-[10px] font-mono text-white/20">no cages assigned in this rack</span>}
+                  {owners.map(u => (
+                    <span key={u.id} className={`flex items-center gap-1.5 px-2 py-1 rounded-lg bg-white/5 text-[11px] font-bold ${u.id === user?.id ? 'text-white' : 'text-white/60'}`}>
+                      <span className="w-2.5 h-2.5 rounded-full" style={{ background: u.color || '#64748b' }} />
+                      {u.full_name || u.username} · {counts[u.id]}
+                    </span>
+                  ))}
+                  <button onClick={() => setOnlyMine(!onlyMine)}
+                    className={`ml-auto px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest border ${onlyMine ? 'border-biotech-accent text-biotech-accent bg-biotech-accent/10' : 'border-white/10 text-white/40 hover:text-white'}`}>
+                    {onlyMine ? 'Showing only my cages' : 'Show only my cages'}
+                  </button>
+                  {!user?.color && <span className="w-full text-[10px] text-amber-200/70">Pick your colour in the account menu (bottom right) so your cages are easy to spot.</span>}
+                </div>
+              );
+            })()}
+
             {/* Grid 10x7 */}
             <div className="grid grid-cols-7 gap-1.5 perspective-1000">
               {rackData?.cages.sort((a,b) => (a.row - b.row) || (a.column - b.column)).map(cage => {
                 const hasAnimals = cage.animals?.length > 0;
                 const allAlive = cage.animals?.every(a => a.status === 'Vivo');
-                
+                const ownerColor = cage.owner ? (cage.owner.color || '#64748b') : null;
+                const dimmed = onlyMine && cage.owner && !isMine(cage);
+
                 return (
                   <button
                     key={cage.id}
+                    title={cage.owner ? `Responsible: ${cage.owner.full_name || cage.owner.username}` : undefined}
+                    style={ownerColor ? { boxShadow: `inset 0 0 0 3px ${ownerColor}` } : undefined}
                     draggable={!isMergeMode}
                     onDragStart={() => setDraggedCage(cage)}
                     onDragEnd={() => { setDraggedCage(null); setDragOverCage(null); }}
@@ -466,8 +506,14 @@ export default function BioterioApp() {
                               ? 'bg-white/5 border-white/20 hover:border-biotech-accent hover:bg-white/10 active:scale-95'
                               : 'bg-black/20 border-white/5 opacity-50 shadow-inner'
                       }
+                      ${dimmed ? 'opacity-25' : ''}
                     `}
                   >
+                    {cage.owner && (
+                      <span className="absolute top-2 left-2.5 text-[9px] font-black" style={{ color: ownerColor }}>
+                        {cage.owner.initials || cage.owner.username.slice(0, 2).toUpperCase()}
+                      </span>
+                    )}
                     {/* Glow effect on hover */}
                     {(hasAnimals || cage.is_breeding_pair) && (
                       <div className={`absolute inset-0 transition-colors duration-500 ${cage.is_breeding_pair ? 'bg-pink-500/0 group-hover:bg-pink-500/10' : 'bg-biotech-accent/0 group-hover:bg-biotech-accent/5'}`}></div>
@@ -597,7 +643,8 @@ export default function BioterioApp() {
                   Cage <span className="text-biotech-accent">*</span>
                 </label>
                 {(() => {
-                  const allCages = racks.flatMap(r => r.cages).filter(c => c.cage_number != null);
+                  // Only cages this user may put animals into (theirs, or empty and unassigned)
+                  const allCages = racks.flatMap(r => r.cages).filter(c => c.cage_number != null && (canModifyCage(c) || c.id === newAnimal.cage_id));
                   const selectedCageObj = allCages.find(c => c.id === newAnimal.cage_id);
                   const rackOf = (c) => racks.find(r => r.cages.some(rc => rc.id === c.id));
                   const filtered = allCages.filter(c => {
@@ -675,6 +722,8 @@ export default function BioterioApp() {
       {/* Modal */}
       <CageModal 
         cage={selectedCage} 
+        canModify={canModifyCage(selectedCage)}
+        directory={directory}
         racks={racks}
         onClose={() => setSelectedCage(null)} 
         onUpdate={() => { loadRackDetails(); setSelectedCage(null); }}
@@ -728,7 +777,10 @@ export default function BioterioApp() {
               {breedingStep === 2 && (
                 <div className="space-y-6">
                   <div className="flex justify-between items-center">
-                    <h3 className="text-lg font-bold text-white/80">Select Animals ({breedingData.animalIds.length} selected)</h3>
+                    <div>
+                      <h3 className="text-lg font-bold text-white/80">Select Animals ({breedingData.animalIds.length} selected)</h3>
+                      {!isAdmin && <p className="text-[10px] font-mono text-white/30 mt-1">Only animals in your cages are listed. To use someone else's animal, ask them to hand the cage over.</p>}
+                    </div>
                     <p className="text-[10px] font-mono text-pink-500/60 uppercase tracking-widest">
                       Required: {breedingData.type === 'Pair' ? '2' : '3'}
                     </p>
@@ -754,6 +806,8 @@ export default function BioterioApp() {
                       const cageMatches = (c) => cageQuery !== '' && String(c.display_id).toLowerCase() === cageQuery;
                       const rows = racks.flatMap(r => r.cages).flatMap(c => (c.animals || []).map(a => ({ a, c })))
                         .filter(({ a }) => a.status === 'Vivo')
+                        // Crosses only with your own animals (admins may use any)
+                        .filter(({ c }) => isAdmin || isMine(c))
                         .filter(({ a, c }) => {
                           if (!q) return true;
                           if (cageOnly) return cageMatches(c);
@@ -825,7 +879,7 @@ export default function BioterioApp() {
                         {/* 2. Position in the rack */}
                         <div className="grid gap-2" style={{ gridTemplateColumns: `repeat(${nCols}, minmax(0, 1fr))` }}>
                           {cages.map(cage => {
-                            const occupied = cage.animals?.length > 0;
+                            const occupied = cage.animals?.length > 0 || !canModifyCage(cage);
                             const selected = breedingData.targetCageId === cage.id;
                             return (
                               <button

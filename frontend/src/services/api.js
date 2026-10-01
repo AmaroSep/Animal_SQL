@@ -35,6 +35,11 @@ export const createUser = (data) => request('/auth/users', json('POST', data));
 export const updateUser = (id, data) => request(`/auth/users/${id}`, json('PUT', data));
 export const fetchAudit = (limit = 200) => request(`/auth/audit?limit=${limit}`);
 export const apiUrl = (path) => `${API_URL}${path}`;
+export const fetchDirectory = () => request('/auth/directory');
+export const fetchPalette = () => request('/auth/palette');
+export const setMyColor = (color) => request('/auth/me/color', json('PUT', { color }));
+export const setCageOwner = (cageIds, ownerId) =>
+  request('/cages/owner', json('PATCH', { cage_ids: cageIds, owner_id: ownerId }));
 
 // ── Bioterio: Racks & Cages ────────────────────────────────────────────────
 

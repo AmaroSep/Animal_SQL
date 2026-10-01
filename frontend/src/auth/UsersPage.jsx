@@ -101,11 +101,12 @@ export default function UsersPage() {
         <section className="glass rounded-3xl p-6 overflow-x-auto">
           <table className="w-full text-sm">
             <thead><tr className="text-left text-[10px] font-black uppercase tracking-widest text-white/40 border-b border-white/10">
-              {['Username', 'Name', 'Initials', 'Role', 'Status', 'Last sign-in'].map((h) => <th key={h} className="py-3 pr-4">{h}</th>)}
+              {['', 'Username', 'Name', 'Initials', 'Role', 'Status', 'Last sign-in'].map((h) => <th key={h} className="py-3 pr-4">{h}</th>)}
             </tr></thead>
             <tbody>
               {users.map((u) => (
                 <tr key={u.id} onClick={() => setModal(u)} className="border-b border-white/5 hover:bg-white/5 cursor-pointer">
+                  <td className="py-3 pr-2"><span className="inline-block w-3 h-3 rounded-full border border-white/20" style={{ background: u.color || 'transparent' }} /></td>
                   <td className="py-3 pr-4 font-mono font-bold">{u.username}</td>
                   <td className="py-3 pr-4">{u.full_name || '—'}</td>
                   <td className="py-3 pr-4 font-mono">{u.initials || '—'}</td>

@@ -24,7 +24,7 @@ MIN_PASSWORD_LENGTH = 10
 # Paths reachable without a session
 PUBLIC_PATHS = {"/auth/login", "/auth/logout"}
 # Write requests a read-only user may still make (their own account)
-VIEWER_WRITE_PATHS = {"/auth/logout", "/auth/change-password"}
+VIEWER_WRITE_PATHS = {"/auth/logout", "/auth/change-password", "/auth/me/color"}
 
 
 # ── Passwords (scrypt from the standard library) ───────────────────────────

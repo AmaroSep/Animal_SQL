@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Depends, HTTPException, status, UploadFile, File
+from fastapi import FastAPI, Depends, HTTPException, status, UploadFile, File, Request
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from typing import List
@@ -10,6 +10,7 @@ from database import engine, get_db
 from routers import responsibles, em_grids, ln2, m80, auth
 from security import auth_guard
 import record_tracking  # noqa: F401  (registers the created_by / updated_by hooks)
+from ownership import acting_user, check_animal, check_cage, is_admin, release_if_empty
 from utils import calculate_age_display, calculate_age_months
 
 # Create tables
@@ -125,6 +126,10 @@ def run_migrations():
             END IF;
         END$$;
         """,
+        # v5: responsible user per cage, colour per user
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS color VARCHAR",
+        "ALTER TABLE cages ADD COLUMN IF NOT EXISTS owner_id INTEGER REFERENCES users(id) ON DELETE SET NULL",
+        "CREATE INDEX IF NOT EXISTS ix_cages_owner_id ON cages (owner_id)",
         # v4: who created / last edited each record
         "ALTER TABLE em_grids ADD COLUMN IF NOT EXISTS created_by VARCHAR",
         "ALTER TABLE em_grids ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP",
@@ -210,12 +215,15 @@ def get_cage_animals(cage_id: int, db: Session = Depends(get_db)):
     return animals
 
 @app.patch("/cages/{cage_id}/breeding_status", response_model=schemas.Cage)
-def update_cage_breeding_status(cage_id: int, status_update: schemas.CageUpdate, db: Session = Depends(get_db)):
+def update_cage_breeding_status(cage_id: int, status_update: schemas.CageUpdate, request: Request, db: Session = Depends(get_db)):
     db_cage = db.query(models.Cage).filter(models.Cage.id == cage_id).first()
     if not db_cage:
         raise HTTPException(status_code=404, detail="Cage not found")
-    
+    check_cage(db, acting_user(request, db), db_cage, claim=status_update.is_breeding_pair)
+
     db_cage.is_breeding_pair = status_update.is_breeding_pair
+    if not db_cage.is_breeding_pair:
+        release_if_empty(db, db_cage)
     try:
         db.commit()
         db.refresh(db_cage)
@@ -249,10 +257,11 @@ def create_cage(cage_data: schemas.CageCreate, db: Session = Depends(get_db)):
     return db_cage
 
 @app.patch("/cages/{cage_id}/number", response_model=schemas.Cage)
-def update_cage_number(cage_id: int, update: schemas.CageNumberUpdate, db: Session = Depends(get_db)):
+def update_cage_number(cage_id: int, update: schemas.CageNumberUpdate, request: Request, db: Session = Depends(get_db)):
     db_cage = db.query(models.Cage).filter(models.Cage.id == cage_id).first()
     if not db_cage:
         raise HTTPException(status_code=404, detail="Cage not found")
+    check_cage(db, acting_user(request, db), db_cage)
     db_cage.cage_number = update.cage_number
     try:
         db.commit()
@@ -266,11 +275,14 @@ def update_cage_number(cage_id: int, update: schemas.CageNumberUpdate, db: Sessi
     return db_cage
 
 @app.post("/cages/swap-positions")
-def swap_cage_positions(swap: schemas.CageSwapPositions, db: Session = Depends(get_db)):
+def swap_cage_positions(swap: schemas.CageSwapPositions, request: Request, db: Session = Depends(get_db)):
     cage_a = db.query(models.Cage).filter(models.Cage.id == swap.cage_a_id).first()
     cage_b = db.query(models.Cage).filter(models.Cage.id == swap.cage_b_id).first()
     if not cage_a or not cage_b:
         raise HTTPException(status_code=404, detail="Cage not found")
+    user = acting_user(request, db)
+    check_cage(db, user, cage_a)
+    check_cage(db, user, cage_b)
     cage_a.row, cage_b.row = cage_b.row, cage_a.row
     cage_a.column, cage_b.column = cage_b.column, cage_a.column
     try:
@@ -279,6 +291,24 @@ def swap_cage_positions(swap: schemas.CageSwapPositions, db: Session = Depends(g
         db.rollback()
         raise HTTPException(status_code=400, detail=str(e))
     return {"message": "Positions swapped"}
+
+@app.patch("/cages/owner")
+def set_cage_owner(data: schemas.CageOwnerUpdate, request: Request, db: Session = Depends(get_db)):
+    """Hand cages over to another user (their responsible person or an admin can)."""
+    user = acting_user(request, db)
+    new_owner = db.query(models.User).filter(models.User.id == data.owner_id, models.User.active == True).first()
+    if not new_owner or new_owner.role == models.UserRole.VIEWER:
+        raise HTTPException(status_code=400, detail="Cages can only be handed to an active editor or administrator")
+    cages = db.query(models.Cage).filter(models.Cage.id.in_(data.cage_ids)).all()
+    if len(cages) != len(set(data.cage_ids)):
+        raise HTTPException(status_code=404, detail="Cage not found")
+    for cage in cages:
+        if not is_admin(user) and cage.owner_id != user.id:
+            check_cage(db, user, cage)  # raises with the owner's name
+            raise HTTPException(status_code=403, detail="Only the responsible person or an administrator can hand a cage over")
+        cage.owner_id = new_owner.id
+    db.commit()
+    return {"message": f"{len(cages)} cage(s) assigned to {new_owner.full_name or new_owner.username}"}
 
 @app.get("/animals/history", response_model=List[schemas.Animal])
 def get_animals_history(limit: int = 500, offset: int = 0, db: Session = Depends(get_db)):
@@ -356,7 +386,11 @@ def get_statistics(db: Session = Depends(get_db)):
     }
 
 @app.post("/animals", response_model=schemas.Animal, status_code=status.HTTP_201_CREATED)
-def create_animal(animal: schemas.AnimalCreate, db: Session = Depends(get_db)):
+def create_animal(animal: schemas.AnimalCreate, request: Request, db: Session = Depends(get_db)):
+    cage = db.query(models.Cage).filter(models.Cage.id == animal.cage_id).first()
+    if not cage:
+        raise HTTPException(status_code=404, detail="Cage not found")
+    check_cage(db, acting_user(request, db), cage, claim=True)
     db_animal = models.Animal(**animal.dict())
     if db_animal.status != models.AnimalStatus.ALIVE:
         db_animal.status_changed_at = datetime.utcnow()
@@ -372,10 +406,13 @@ def create_animal(animal: schemas.AnimalCreate, db: Session = Depends(get_db)):
     return db_animal
 
 @app.patch("/animals/{animal_id}/status", response_model=schemas.Animal)
-def update_animal_status(animal_id: int, status_update: schemas.StatusUpdate, db: Session = Depends(get_db)):
+def update_animal_status(animal_id: int, status_update: schemas.StatusUpdate, request: Request, db: Session = Depends(get_db)):
     animal = db.query(models.Animal).filter(models.Animal.id == animal_id).first()
     if not animal:
         raise HTTPException(status_code=404, detail="Animal not found")
+    cage = db.query(models.Cage).filter(models.Cage.id == animal.cage_id).first()
+    if cage:
+        check_cage(db, acting_user(request, db), cage, claim=status_update.status == models.AnimalStatus.ALIVE)
     
     if status_update.status != models.AnimalStatus.ALIVE and not (status_update.reason and status_update.reason.strip()):
         raise HTTPException(status_code=400, detail="A reason is required when marking an animal as Dead or Eliminated")
@@ -387,6 +424,8 @@ def update_animal_status(animal_id: int, status_update: schemas.StatusUpdate, db
             animal.status_changed_at = datetime.utcnow()
     animal.status = status_update.status
     animal.elimination_reason = status_update.reason # Store the reason
+    if cage and animal.status != models.AnimalStatus.ALIVE:
+        release_if_empty(db, cage)
     db.commit()
     db.refresh(animal)
     
@@ -394,18 +433,28 @@ def update_animal_status(animal_id: int, status_update: schemas.StatusUpdate, db
     return animal
 
 @app.put("/animals/{animal_id}", response_model=schemas.Animal)
-def update_animal(animal_id: int, animal_update: schemas.AnimalUpdate, db: Session = Depends(get_db)):
+def update_animal(animal_id: int, animal_update: schemas.AnimalUpdate, request: Request, db: Session = Depends(get_db)):
     db_animal = db.query(models.Animal).filter(models.Animal.id == animal_id).first()
     if not db_animal:
         raise HTTPException(status_code=404, detail="Animal not found")
-    
+    user = acting_user(request, db)
+    old_cage = db.query(models.Cage).filter(models.Cage.id == db_animal.cage_id).first()
+    if old_cage:
+        check_cage(db, user, old_cage)
+
     update_data = animal_update.dict(exclude_unset=True)
+    new_cage = None
     if update_data.get("cage_id") is None:
         update_data.pop("cage_id", None)
-    elif not db.query(models.Cage).filter(models.Cage.id == update_data["cage_id"]).first():
-        raise HTTPException(status_code=404, detail="Cage not found")
+    elif update_data["cage_id"] != db_animal.cage_id:
+        new_cage = db.query(models.Cage).filter(models.Cage.id == update_data["cage_id"]).first()
+        if not new_cage:
+            raise HTTPException(status_code=404, detail="Cage not found")
+        check_cage(db, user, new_cage, claim=True)
     for key, value in update_data.items():
         setattr(db_animal, key, value)
+    if new_cage and old_cage:
+        release_if_empty(db, old_cage)
     
     try:
         db.commit()
@@ -418,12 +467,19 @@ def update_animal(animal_id: int, animal_update: schemas.AnimalUpdate, db: Sessi
     return db_animal
 
 @app.post("/breeding/create")
-def create_breeding_group(breeding: schemas.BreedingCreate, db: Session = Depends(get_db)):
+def create_breeding_group(breeding: schemas.BreedingCreate, request: Request, db: Session = Depends(get_db)):
     # 1. Find target cage
     target_cage = db.query(models.Cage).filter(models.Cage.id == breeding.target_cage_id).first()
     if not target_cage:
         raise HTTPException(status_code=404, detail="Target cage not found")
-    
+    # Only with your own animals (an admin may use any), into a cage you may take
+    user = acting_user(request, db)
+    for animal_id in breeding.animal_ids:
+        animal = db.query(models.Animal).filter(models.Animal.id == animal_id).first()
+        if animal:
+            check_animal(db, user, animal)
+    check_cage(db, user, target_cage, claim=True)
+
     # 2. Mark cage as breeding
     target_cage.is_breeding_pair = True
     
@@ -448,10 +504,12 @@ def create_breeding_group(breeding: schemas.BreedingCreate, db: Session = Depend
     return {"message": f"Breeding {breeding.type} created successfully"}
 
 @app.post("/breeding/end/{cage_id}")
-def end_breeding_session(cage_id: int, end_data: schemas.BreedingEnd, db: Session = Depends(get_db)):
+def end_breeding_session(cage_id: int, end_data: schemas.BreedingEnd, request: Request, db: Session = Depends(get_db)):
     cage = db.query(models.Cage).filter(models.Cage.id == cage_id).first()
     if not cage:
         raise HTTPException(status_code=404, detail="Cage not found")
+    user = acting_user(request, db)
+    check_cage(db, user, cage)
     
     if end_data.target_option not in ("Home", "New"):
         raise HTTPException(status_code=400, detail="target_option must be 'Home' or 'New'")
@@ -460,8 +518,10 @@ def end_breeding_session(cage_id: int, end_data: schemas.BreedingEnd, db: Sessio
             raise HTTPException(status_code=400, detail="Select the cage the animals will move to")
         if end_data.new_cage_id == cage_id:
             raise HTTPException(status_code=400, detail="The new cage must be different from the breeding cage")
-        if not db.query(models.Cage).filter(models.Cage.id == end_data.new_cage_id).first():
+        new_cage = db.query(models.Cage).filter(models.Cage.id == end_data.new_cage_id).first()
+        if not new_cage:
             raise HTTPException(status_code=404, detail="Destination cage not found")
+        check_cage(db, user, new_cage, claim=True)
 
     # 1. Unmark cage
     cage.is_breeding_pair = False
@@ -480,7 +540,8 @@ def end_breeding_session(cage_id: int, end_data: schemas.BreedingEnd, db: Sessio
             animal.cage_id = end_data.new_cage_id
             animal.previous_cage_id = None
         # else ("Home" without a recorded home cage): the animal stays where it is.
-        
+    release_if_empty(db, cage)
+
     try:
         db.commit()
     except Exception as e:
@@ -490,7 +551,7 @@ def end_breeding_session(cage_id: int, end_data: schemas.BreedingEnd, db: Sessio
     return {"message": "Breeding ended and animals relocated"}
 
 @app.post("/cages/merge")
-def merge_cages(merge_data: schemas.CageMerge, db: Session = Depends(get_db)):
+def merge_cages(merge_data: schemas.CageMerge, request: Request, db: Session = Depends(get_db)):
     source_cage = db.query(models.Cage).filter(models.Cage.id == merge_data.source_cage_id).first()
     dest_cage = db.query(models.Cage).filter(models.Cage.id == merge_data.destination_cage_id).first()
     
@@ -498,7 +559,10 @@ def merge_cages(merge_data: schemas.CageMerge, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Source or destination cage not found")
     if source_cage.id == dest_cage.id:
         raise HTTPException(status_code=400, detail="Source and destination cages must be different")
-    
+    user = acting_user(request, db)
+    check_cage(db, user, source_cage)
+    check_cage(db, user, dest_cage, claim=True)
+
     # 1. Relocate all live animals from source to destination
     animals = db.query(models.Animal).filter(
         models.Animal.cage_id == merge_data.source_cage_id,
@@ -518,7 +582,8 @@ def merge_cages(merge_data: schemas.CageMerge, db: Session = Depends(get_db)):
     if source_cage.is_breeding_pair:
         dest_cage.is_breeding_pair = True
         source_cage.is_breeding_pair = False
-        
+    release_if_empty(db, source_cage)
+
     try:
         db.commit()
     except Exception as e:
@@ -573,7 +638,9 @@ def export_animals_csv(db: Session = Depends(get_db)):
     )
 
 @app.post("/import/animals/csv")
-async def import_animals_csv(file: UploadFile = File(...), db: Session = Depends(get_db)):
+async def import_animals_csv(request: Request, file: UploadFile = File(...), db: Session = Depends(get_db)):
+    if not is_admin(acting_user(request, db)):
+        raise HTTPException(status_code=403, detail="Only administrators can import animals in bulk")
     content = await file.read()
     try:
         string_content = content.decode("utf-8-sig")

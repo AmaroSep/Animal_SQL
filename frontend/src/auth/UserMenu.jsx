@@ -1,8 +1,8 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { UserCircle, LogOut, KeyRound, Users, Eye, X } from 'lucide-react';
+import { UserCircle, LogOut, KeyRound, Users, Eye, X, Palette } from 'lucide-react';
 import { useAuth } from './AuthContext';
-import { changePassword } from '../services/api';
+import { changePassword, fetchPalette, fetchDirectory, setMyColor } from '../services/api';
 
 const input = 'w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:border-cyan-400 focus:outline-none';
 
@@ -41,9 +41,36 @@ function ChangePasswordModal({ onClose }) {
   );
 }
 
+// Colour that marks this user's cages in the Bioterio
+function ColorPicker({ user, onPicked }) {
+  const [palette, setPalette] = useState([]);
+  const [taken, setTaken] = useState({});
+  const [error, setError] = useState(null);
+  useEffect(() => {
+    fetchPalette().then(setPalette).catch(() => {});
+    fetchDirectory().then((us) => setTaken(Object.fromEntries(us.filter((u) => u.color && u.id !== user.id).map((u) => [u.color, u.full_name || u.username])))).catch(() => {});
+  }, [user.id]);
+  const pick = async (c) => {
+    try { setError(null); onPicked(await setMyColor(c)); } catch (err) { setError(err.message); }
+  };
+  return (
+    <div className="px-4 py-3 border-b border-white/10">
+      <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-white/40 mb-2"><Palette size={12} /> My colour</div>
+      <div className="grid grid-cols-6 gap-1.5">
+        {palette.map((c) => (
+          <button key={c} onClick={() => pick(c)} disabled={!!taken[c]} title={taken[c] ? `Used by ${taken[c]}` : c}
+            className={`w-6 h-6 rounded-full border-2 disabled:opacity-20 disabled:cursor-not-allowed ${user.color === c ? 'border-white scale-110' : 'border-transparent hover:scale-110'}`}
+            style={{ background: c }} />
+        ))}
+      </div>
+      {error && <p className="text-red-400 text-[10px] font-mono mt-1">{error}</p>}
+    </div>
+  );
+}
+
 // Signed-in user chip, fixed in the bottom-right corner on every page
 export default function UserMenu() {
-  const { user, logout, isAdmin } = useAuth();
+  const { user, logout, isAdmin, setUser } = useAuth();
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
   const [changing, setChanging] = useState(false);
@@ -59,6 +86,7 @@ export default function UserMenu() {
               <div className="text-sm font-black">{user.full_name || user.username}</div>
               <div className="text-[10px] font-mono text-white/40">{user.username} · {user.role}</div>
             </div>
+            <ColorPicker user={user} onPicked={setUser} />
             <button className={item} onClick={() => { setOpen(false); setChanging(true); }}><KeyRound size={14} /> Change password</button>
             {isAdmin && <button className={item} onClick={() => { setOpen(false); navigate('/users'); }}><Users size={14} /> Users & activity</button>}
             <button className={`${item} text-red-300`} onClick={logout}><LogOut size={14} /> Sign out</button>
@@ -66,7 +94,7 @@ export default function UserMenu() {
         )}
         <button onClick={() => setOpen(!open)} title="Account"
           className="flex items-center gap-2 pl-2 pr-4 py-2 rounded-full glass border-white/20 hover:bg-white/10 text-xs font-bold shadow-xl">
-          <UserCircle size={20} className="text-cyan-300" />
+          <UserCircle size={20} style={{ color: user.color || '#67e8f9' }} />
           {user.initials || user.username}
           {user.role === 'viewer' && <span className="flex items-center gap-1 text-[9px] uppercase tracking-widest text-amber-200"><Eye size={11} /> read-only</span>}
         </button>

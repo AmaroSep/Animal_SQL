@@ -3,6 +3,7 @@
     docker exec -it bioterio_backend python manage_users.py create <username> --role admin
     docker exec -it bioterio_backend python manage_users.py reset-password <username>
     docker exec -it bioterio_backend python manage_users.py list
+    docker exec -it bioterio_backend python manage_users.py assign-cages <username>
 
 Passwords are typed at a hidden prompt; they are never passed as arguments.
 """
@@ -39,6 +40,8 @@ def main():
     r = sub.add_parser("reset-password")
     r.add_argument("username")
     sub.add_parser("list")
+    a = sub.add_parser("assign-cages", help="give every occupied cage without a responsible user to <username>")
+    a.add_argument("username")
     args = ap.parse_args()
 
     models.Base.metadata.create_all(bind=engine)
@@ -50,6 +53,22 @@ def main():
             return 0
         username = args.username.strip().lower()
         user = db.query(models.User).filter(models.User.username == username).first()
+        if args.cmd == "assign-cages":
+            if not user:
+                print(f"User {username} not found")
+                return 1
+            alive = models.AnimalStatus.ALIVE
+            occupied = {a.cage_id for a in db.query(models.Animal).filter(models.Animal.status == alive)}
+            homes = {a.previous_cage_id for a in db.query(models.Animal).filter(
+                models.Animal.status == alive, models.Animal.previous_cage_id.isnot(None))}
+            n = 0
+            for cage in db.query(models.Cage).filter(models.Cage.owner_id.is_(None)):
+                if cage.id in occupied or cage.id in homes or cage.is_breeding_pair:
+                    cage.owner_id = user.id
+                    n += 1
+            db.commit()
+            print(f"Assigned {n} cage(s) to {username}")
+            return 0
         if args.cmd == "create":
             if user:
                 print(f"User {username} already exists")

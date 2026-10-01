@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 
 import models, schemas
 from database import get_db
+from ownership import PALETTE
 from security import (
     SESSION_COOKIE, clear_failures, client_address, create_session, delete_session, hash_password, login_locked,
     password_problem, record_failure, set_session_cookie, user_for_token, verify_password,
@@ -53,6 +54,36 @@ def logout(request: Request, response: Response, db: Session = Depends(get_db)):
 
 @router.get("/me", response_model=schemas.UserOut)
 def me(user: models.User = Depends(current_user)):
+    return user
+
+
+def _check_color(db: Session, color: str, user_id: int):
+    color = (color or "").lower()
+    if color not in PALETTE:
+        raise HTTPException(status_code=400, detail="Pick a colour from the palette")
+    taken = db.query(models.User).filter(models.User.color == color, models.User.active == True,
+                                         models.User.id != user_id).first()
+    if taken:
+        raise HTTPException(status_code=400, detail=f"That colour is already used by {taken.full_name or taken.username}")
+    return color
+
+
+@router.get("/palette")
+def palette():
+    return PALETTE
+
+
+@router.get("/directory", response_model=List[schemas.CageOwner])
+def directory(db: Session = Depends(get_db)):
+    """Active users with their colours (for legends and hand-over lists; visible to everyone)."""
+    return db.query(models.User).filter(models.User.active == True).order_by(models.User.username).all()
+
+
+@router.put("/me/color", response_model=schemas.UserOut)
+def set_my_color(data: schemas.ColorUpdate, user: models.User = Depends(current_user), db: Session = Depends(get_db)):
+    user.color = _check_color(db, data.color, user.id)
+    db.commit()
+    db.refresh(user)
     return user
 
 
@@ -114,6 +145,8 @@ def update_user(user_id: int, data: schemas.UserUpdate, request: Request, db: Se
         db.query(models.UserSession).filter(models.UserSession.user_id == user.id).delete()
     if "initials" in changes:
         changes["initials"] = (changes["initials"] or "").strip().upper() or None
+    if "color" in changes:
+        changes["color"] = _check_color(db, changes["color"], user.id) if changes["color"] else None
     for k, v in changes.items():
         setattr(user, k, v)
     if changes.get("active") is False:

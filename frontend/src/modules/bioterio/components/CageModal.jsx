@@ -1,9 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { X, Skull, Trash2, Plus, Pencil, HeartOff, RefreshCw, Hash } from 'lucide-react';
-import { updateAnimalStatus, endBreedingSession, updateCageNumber } from '../../../services/api';
+import { updateAnimalStatus, endBreedingSession, updateCageNumber, setCageOwner } from '../../../services/api';
+import { useAuth } from '../../../auth/AuthContext';
 import { animalStatusLabel } from '../../../utils/labels';
 
-export default function CageModal({ cage, racks = [], onClose, onUpdate, onAddAnimal, onEditAnimal, onMergeStart }) {
+export default function CageModal({ cage, racks = [], canModify = true, directory = [], onClose, onUpdate, onAddAnimal, onEditAnimal, onMergeStart }) {
+  const { isAdmin } = useAuth();
+  const [handTo, setHandTo] = useState('');
   const [showEndDialog, setShowEndDialog] = useState(false);
   const [endOption, setEndOption] = useState('Home');
   const [newCageId, setNewCageId] = useState('');
@@ -19,6 +22,18 @@ export default function CageModal({ cage, racks = [], onClose, onUpdate, onAddAn
   }, [cage?.id]);
 
   if (!cage) return null;
+
+  const handOver = async () => {
+    const to = directory.find(u => u.id === Number(handTo));
+    if (!to || !confirm(`Hand cage ${cage.cage_number != null ? '#' + cage.cage_number : cage.display_id} over to ${to.full_name || to.username}? You will no longer be able to change it.`)) return;
+    try {
+      await setCageOwner([cage.id], to.id);
+      setHandTo('');
+      onUpdate();
+    } catch (err) {
+      alert(err.message);
+    }
+  };
 
   const handleSaveCageNumber = async () => {
     const num = cageNumberInput.trim() === '' ? null : parseInt(cageNumberInput);
@@ -109,10 +124,30 @@ export default function CageModal({ cage, racks = [], onClose, onUpdate, onAddAn
                 ) : (
                   <button
                     onClick={() => { setCageNumberInput(cage.cage_number != null ? String(cage.cage_number) : ''); setEditingCageNumber(true); }}
-                    className="text-[9px] font-mono text-white/30 hover:text-biotech-accent transition-colors uppercase tracking-widest"
+                    disabled={!canModify}
+                    className="disabled:pointer-events-none text-[9px] font-mono text-white/30 hover:text-biotech-accent transition-colors uppercase tracking-widest"
                   >
                     {cage.cage_number != null ? `Cage number: ${cage.cage_number}` : '+ Assign cage number'}
                   </button>
+                )}
+              </div>
+              {/* Responsible user and hand-over */}
+              <div className="flex flex-wrap items-center gap-2 mt-2 text-[10px] font-mono">
+                <span className="w-2.5 h-2.5 rounded-full" style={{ background: cage.owner ? (cage.owner.color || '#64748b') : 'transparent', border: cage.owner ? 'none' : '1px dashed rgba(255,255,255,0.3)' }} />
+                <span className="text-white/60 uppercase tracking-widest">
+                  {cage.owner ? `Responsible: ${cage.owner.full_name || cage.owner.username}` : 'No responsible person'}
+                </span>
+                {canModify && (cage.owner || isAdmin) && (
+                  <span className="flex items-center gap-1 ml-2">
+                    <select value={handTo} onChange={e => setHandTo(e.target.value)}
+                      className="bg-black/40 border border-white/10 rounded-lg px-2 py-1 text-[10px] text-white outline-none">
+                      <option value="" className="bg-slate-900">Hand over to…</option>
+                      {directory.filter(u => u.id !== cage.owner_id).map(u => (
+                        <option key={u.id} value={u.id} className="bg-slate-900">{u.full_name || u.username}</option>
+                      ))}
+                    </select>
+                    {handTo && <button onClick={handOver} className="px-2 py-1 rounded-lg bg-biotech-accent/20 text-biotech-accent font-black uppercase tracking-widest hover:bg-biotech-accent hover:text-biotech-blue">OK</button>}
+                  </span>
                 )}
               </div>
             </div>
@@ -124,7 +159,8 @@ export default function CageModal({ cage, racks = [], onClose, onUpdate, onAddAn
               </span>
               <button 
                 onClick={toggleBreedingPair}
-                className={`w-10 h-5 rounded-full relative transition-all duration-300 ${cage.is_breeding_pair ? 'bg-pink-500 shadow-[0_0_15px_rgba(236,72,153,0.4)]' : 'bg-white/10'}`}
+                disabled={!canModify}
+                className={`disabled:opacity-40 disabled:cursor-not-allowed w-10 h-5 rounded-full relative transition-all duration-300 ${cage.is_breeding_pair ? 'bg-pink-500 shadow-[0_0_15px_rgba(236,72,153,0.4)]' : 'bg-white/10'}`}
               >
                 <div className={`absolute top-1 w-3 h-3 rounded-full bg-white transition-all duration-300 ${cage.is_breeding_pair ? 'left-6' : 'left-1'}`}></div>
               </button>
@@ -132,7 +168,7 @@ export default function CageModal({ cage, racks = [], onClose, onUpdate, onAddAn
           </div>
           
           <div className="flex items-center gap-4">
-            {cage.is_breeding_pair && (
+            {cage.is_breeding_pair && canModify && (
               <button 
                 onClick={() => setShowEndDialog(true)}
                 className="flex items-center gap-2 px-6 py-3 bg-pink-500 text-white rounded-xl text-[10px] font-black uppercase tracking-widest transition-all hover:scale-105 active:scale-95 shadow-[0_0_20px_rgba(236,72,153,0.3)]"
@@ -144,7 +180,7 @@ export default function CageModal({ cage, racks = [], onClose, onUpdate, onAddAn
 
             <button 
               onClick={handleMergeStart}
-              disabled={!cage.animals || cage.animals.length === 0}
+              disabled={!canModify || !cage.animals || cage.animals.length === 0}
               className="flex items-center gap-2 px-6 py-3 bg-white/5 hover:bg-biotech-accent hover:text-biotech-blue border border-white/10 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all disabled:opacity-30 disabled:cursor-not-allowed group"
             >
               <RefreshCw size={14} className="group-hover:rotate-180 transition-transform duration-500" />
@@ -153,7 +189,8 @@ export default function CageModal({ cage, racks = [], onClose, onUpdate, onAddAn
 
             <button 
               onClick={onAddAnimal}
-              className="flex items-center gap-2 px-6 py-3 bg-biotech-accent/10 hover:bg-biotech-accent text-biotech-accent hover:text-biotech-blue border border-biotech-accent/20 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all group"
+              disabled={!canModify}
+              className="disabled:opacity-30 disabled:cursor-not-allowed flex items-center gap-2 px-6 py-3 bg-biotech-accent/10 hover:bg-biotech-accent text-biotech-accent hover:text-biotech-blue border border-biotech-accent/20 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all group"
             >
               <Plus size={14} className="group-hover:rotate-90 transition-transform" />
               Add Animal
@@ -168,6 +205,11 @@ export default function CageModal({ cage, racks = [], onClose, onUpdate, onAddAn
           </div>
         </div>
         
+        {!canModify && (
+          <div className="px-8 py-3 bg-white/5 border-b border-white/10 text-xs text-white/50">
+            View only — {cage.owner ? `this cage belongs to ${cage.owner.full_name || cage.owner.username}` : 'this cage has no responsible person yet; an administrator can assign it'}.
+          </div>
+        )}
         <div className={`p-8 max-h-[70vh] overflow-y-auto relative ${showEndDialog ? 'min-h-[560px]' : ''}`}>
           {/* Termination Dialog Overlay */}
           {showEndDialog && (
@@ -289,7 +331,7 @@ export default function CageModal({ cage, racks = [], onClose, onUpdate, onAddAn
                       </span>
                     </td>
                     <td className="px-4 py-4 text-right">
-                      {animal.status === 'Vivo' && (
+                      {animal.status === 'Vivo' && canModify && (
                         <div className="flex justify-end gap-2 text-white">
                           <button 
                             onClick={() => onEditAnimal(animal)}
