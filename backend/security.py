@@ -116,16 +116,28 @@ def clear_failures(key: str):
     _failures.pop(key, None)
 
 
+# Only behind Cloudflare Tunnel is CF-Connecting-IP set by a trusted party; elsewhere a
+# client could send it to dodge the login throttle.
+TRUST_CF_HEADER = os.getenv("TRUST_CF_HEADER", "false").lower() == "true"
+
+
 def client_address(request) -> str:
-    # Behind Cloudflare Tunnel the real client address arrives in this header
-    return request.headers.get("cf-connecting-ip") or (request.client.host if request.client else "?")
+    if TRUST_CF_HEADER and request.headers.get("cf-connecting-ip"):
+        return request.headers["cf-connecting-ip"]
+    # Behind the Caddy proxy uvicorn (--proxy-headers) puts the X-Forwarded-For client here
+    return request.client.host if request.client else "?"
 
 
 # ── Request guard ──────────────────────────────────────────────────────────
 
 async def auth_guard(request: Request, call_next):
     """Require a session for every request, enforce roles, and log changes."""
-    path = request.url.path.rstrip("/") or "/"
+    # In production the API is mounted under /api (uvicorn --root-path); compare app paths
+    path = request.url.path
+    root = request.scope.get("root_path", "")
+    if root and path.startswith(root):
+        path = path[len(root):]
+    path = path.rstrip("/") or "/"
     if request.method == "OPTIONS" or path in PUBLIC_PATHS:
         return await call_next(request)
 

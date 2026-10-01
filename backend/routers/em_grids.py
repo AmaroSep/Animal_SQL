@@ -35,8 +35,10 @@ def migrate_single_stain_columns():
         # v4: sample dilution
         conn.execute(text("ALTER TABLE em_grids ADD COLUMN IF NOT EXISTS dilution_factor FLOAT"))
 
-# Discarded grids are kept physically in the box (shown red), so they still occupy their slot
-IN_BOX_STATUSES = (models.EMGridStatus.STORED, models.EMGridStatus.IMAGED, models.EMGridStatus.DISCARDED)
+# Grids stay physically in their box whatever their status (used = yellow, discarded = red),
+# so every status occupies its slot
+IN_BOX_STATUSES = (models.EMGridStatus.STORED, models.EMGridStatus.IMAGED,
+                   models.EMGridStatus.USED, models.EMGridStatus.DISCARDED)
 
 
 # Fixed layouts of the commercial boxes (must match frontend boxLayouts.js).

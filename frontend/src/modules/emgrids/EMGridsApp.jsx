@@ -33,12 +33,12 @@ const DRYING_SUGGESTIONS = ['Filter paper blotting', 'Side blotting', 'Air dry',
 
 // Status values are stored in Spanish; gridStatusLabel() gives the English label
 const STATUSES = ['Almacenada', 'Imageada', 'Usada', 'Descartada'];
-const IN_BOX = ['Almacenada', 'Imageada', 'Descartada'];
+const IN_BOX = ['Almacenada', 'Imageada', 'Usada', 'Descartada'];
 
 const STATUS_STYLE = {
   Almacenada: 'bg-violet-500/20 text-violet-300 border-violet-400/40',
   Imageada: 'bg-emerald-500/20 text-emerald-300 border-emerald-400/40',
-  Usada: 'bg-white/5 text-white/40 border-white/10',
+  Usada: 'bg-amber-400/25 text-amber-100 border-amber-300/60',
   Descartada: 'bg-red-500/25 text-red-200 border-red-400/60',
 };
 
@@ -271,7 +271,7 @@ function GridModal({ grid, box, boxes, position, suggestions, onClose, onSaved }
   };
 
   const remove = async () => {
-    if (!confirm(`Permanently delete the record of grid ${grid.position} (${grid.sample})? To keep its history, use the status "Discarded" (still in the box) or "Used" (no longer in the box) instead.`)) return;
+    if (!confirm(`Permanently delete the record of grid ${grid.position} (${grid.sample})? To keep its history, change its status to "Used" or "Discarded" instead (it stays in its position).`)) return;
     try {
       await deleteEMGrid(grid.id);
       onSaved(null);

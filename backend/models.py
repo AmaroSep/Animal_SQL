@@ -87,8 +87,8 @@ class Animal(Base):
 # ── EM Grids inventory ─────────────────────────────────────────────────────
 
 class EMGridStatus(str, enum.Enum):
-    # STORED / IMAGED / DISCARDED grids physically occupy their slot; USED frees it
-    # but stays in the database as history.
+    # Grids never leave their box: every status keeps its slot. Only deleting the
+    # record frees the position.
     # Stored values stay in Spanish; the UI shows English labels
     STORED = "Almacenada"
     IMAGED = "Imageada"

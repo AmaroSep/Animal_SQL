@@ -1,0 +1,98 @@
+# Production stack for the lab server.
+#   docker compose -f docker-compose.prod.yml --env-file .env.prod up -d --build
+# Only the "web" service publishes a port (WEB_PORT); the database and the API are
+# reachable only inside this stack. See deploy/README.md.
+
+# Own project name: keeps this stack (containers, volumes) apart from the development
+# docker-compose.yml that lives in the same folder.
+name: labprod
+
+services:
+  db:
+    image: postgres:15-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-lab}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env.prod}
+      POSTGRES_DB: ${POSTGRES_DB:-bioterio}
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-lab} -d ${POSTGRES_DB:-bioterio}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build: ./backend
+    restart: unless-stopped
+    # No --reload in production; --proxy-headers takes the client address from Caddy
+    command: >
+      uvicorn main:app --host 0.0.0.0 --port 8000 --workers 1
+      --proxy-headers --forwarded-allow-ips=* --root-path /api
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-lab}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-bioterio}
+      CORS_ORIGINS: ${PUBLIC_URL:-http://localhost:8080}
+      COOKIE_SECURE: ${COOKIE_SECURE:-true}
+      SESSION_HOURS: ${SESSION_HOURS:-12}
+      TRUST_CF_HEADER: ${TRUST_CF_HEADER:-false}
+    volumes:
+      - uploads:/app/uploads
+    depends_on:
+      db:
+        condition: service_healthy
+
+  web:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile.prod
+    restart: unless-stopped
+    ports:
+      # Bound to the server's own address; reach it through Tailscale or the tunnel
+      - "${WEB_BIND:-127.0.0.1}:${WEB_PORT:-8080}:80"
+    depends_on:
+      - backend
+
+  backup:
+    image: postgres:15-alpine
+    restart: unless-stopped
+    entrypoint: ["sh", "/backup.sh"]
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-lab}
+      POSTGRES_DB: ${POSTGRES_DB:-bioterio}
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+      BACKUP_HOUR: ${BACKUP_HOUR:-3}
+      BACKUP_KEEP_DAYS: ${BACKUP_KEEP_DAYS:-30}
+      TZ: ${TZ:-America/Chicago}
+    volumes:
+      - ./deploy/backup.sh:/backup.sh:ro
+      - ${BACKUP_DIR:-./backups}:/backups
+    depends_on:
+      db:
+        condition: service_healthy
+
+  # Optional public access through Cloudflare Tunnel:
+  #   docker compose -f docker-compose.prod.yml --env-file .env.prod --profile tunnel up -d
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    profiles: ["tunnel"]
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${TUNNEL_TOKEN:-}
+    depends_on:
+      - web
+
+  # Temporary public address without a domain (random https://*.trycloudflare.com,
+  # changes on every restart):  ... --profile quicktunnel up -d ; ./deploy/tunnel-url.sh
+  quicktunnel:
+    image: cloudflare/cloudflared:latest
+    profiles: ["quicktunnel"]
+    restart: unless-stopped
+    command: tunnel --no-autoupdate --url http://web:80
+    depends_on:
+      - web
+
+volumes:
+  db_data:
+  uploads:

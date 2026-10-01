@@ -1,0 +1,14 @@
+# Production image: build the React app, then serve it with Caddy (which also proxies /api).
+# Build context is the repository root (see docker-compose.prod.yml).
+FROM node:20-slim AS build
+WORKDIR /app
+COPY frontend/package.json frontend/package-lock.json ./
+RUN npm ci
+COPY frontend/ .
+# The API is served by the same host under /api
+ENV VITE_API_URL=/api
+RUN npm run build
+
+FROM caddy:2-alpine
+COPY --from=build /app/dist /srv
+COPY deploy/Caddyfile /etc/caddy/Caddyfile
