@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { X, Skull, Trash2, Plus, Pencil, HeartOff, RefreshCw, Hash } from 'lucide-react';
-import { updateAnimalStatus, endBreedingSession, updateCageNumber, setCageOwner } from '../../../services/api';
+import { updateAnimalStatus, endBreedingSession, updateCageNumber, updateCageCard, setCageOwner } from '../../../services/api';
 import { useAuth } from '../../../auth/AuthContext';
 import { animalStatusLabel } from '../../../utils/labels';
 
@@ -22,6 +22,17 @@ export default function CageModal({ cage, racks = [], canModify = true, director
   }, [cage?.id]);
 
   if (!cage) return null;
+
+  const editCard = async () => {
+    const value = window.prompt('Cage card (e.g. CM002, 1176615). Leave empty to clear:', cage.card_id || '');
+    if (value === null) return;
+    try {
+      await updateCageCard(cage.id, value);
+      onUpdate();
+    } catch (err) {
+      alert(err.message);
+    }
+  };
 
   const handOver = async () => {
     const to = directory.find(u => u.id === Number(handTo));
@@ -131,6 +142,11 @@ export default function CageModal({ cage, racks = [], canModify = true, director
                   </button>
                 )}
               </div>
+              {/* Facility cage card */}
+              <button onClick={editCard} disabled={!canModify}
+                className="mt-1 text-[9px] font-mono uppercase tracking-widest text-white/30 hover:text-biotech-accent disabled:pointer-events-none">
+                {cage.card_id ? `Cage card: ${cage.card_id}` : (canModify ? '+ Add cage card' : '')}
+              </button>
               {/* Responsible user and hand-over */}
               <div className="flex flex-wrap items-center gap-2 mt-2 text-[10px] font-mono">
                 <span className="w-2.5 h-2.5 rounded-full" style={{ background: cage.owner ? (cage.owner.color || '#64748b') : 'transparent', border: cage.owner ? 'none' : '1px dashed rgba(255,255,255,0.3)' }} />
@@ -310,6 +326,13 @@ export default function CageModal({ cage, racks = [], canModify = true, director
                     <td className="px-4 py-4 font-mono font-bold text-sm tracking-tight">
                       <span className="text-biotech-accent">{animal.mark}</span>
                       <span className="text-white/20 text-[10px] ml-2">#{animal.id}</span>
+                      {animal.external_id && <span className="block text-[10px] text-white/40">{animal.external_id}</span>}
+                      {(animal.notes || animal.origin_cage) && (
+                        <span className="block text-[10px] font-sans font-normal text-white/40 max-w-[16rem] truncate"
+                          title={[animal.notes, animal.origin_cage && `Origin cage: ${animal.origin_cage}`].filter(Boolean).join(' · ')}>
+                          {[animal.notes, animal.origin_cage && `from ${animal.origin_cage}`].filter(Boolean).join(' · ')}
+                        </span>
+                      )}
                     </td>
                     <td className="px-4 py-4">
                       <span className={`px-2 py-0.5 rounded text-[10px] font-black ${

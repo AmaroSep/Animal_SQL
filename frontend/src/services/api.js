@@ -47,6 +47,8 @@ export const fetchRacks = () => request('/racks');
 export const fetchRack = (id) => request(`/racks/${id}`);
 export const updateCageBreedingStatus = (cageId, isBreedingPair) =>
   request(`/cages/${cageId}/breeding_status`, json('PATCH', { is_breeding_pair: isBreedingPair }));
+export const updateCageCard = (cageId, cardId) =>
+  request(`/cages/${cageId}/card`, json('PATCH', { card_id: cardId }));
 export const updateCageNumber = (cageId, cageNumber) =>
   request(`/cages/${cageId}/number`, json('PATCH', { cage_number: cageNumber }));
 export const swapCagePositions = (cageAId, cageBId) =>

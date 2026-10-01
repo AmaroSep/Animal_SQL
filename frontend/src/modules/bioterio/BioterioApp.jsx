@@ -28,7 +28,10 @@ export default function BioterioApp() {
     mark: '',
     genotype: '',
     cage_id: null,
-    status: 'Vivo'
+    status: 'Vivo',
+    external_id: '',
+    origin_cage: '',
+    notes: ''
   });
   const [editingAnimalId, setEditingAnimalId] = useState(null);
   const [cageSearch, setCageSearch] = useState('');
@@ -115,7 +118,10 @@ export default function BioterioApp() {
           dob: newAnimal.dob,
           mark: newAnimal.mark,
           genotype: newAnimal.genotype,
-          cage_id: newAnimal.cage_id
+          cage_id: newAnimal.cage_id,
+          external_id: newAnimal.external_id || null,
+          origin_cage: newAnimal.origin_cage || null,
+          notes: newAnimal.notes || null
         });
         alert('Animal updated');
       } else {
@@ -125,7 +131,10 @@ export default function BioterioApp() {
           dob: newAnimal.dob,
           mark: newAnimal.mark,
           genotype: newAnimal.genotype,
-          cage_id: newAnimal.cage_id
+          cage_id: newAnimal.cage_id,
+          external_id: newAnimal.external_id || null,
+          origin_cage: newAnimal.origin_cage || null,
+          notes: newAnimal.notes || null
         });
         alert('Animal registered');
       }
@@ -135,7 +144,7 @@ export default function BioterioApp() {
       loadRackDetails();
     } catch (err) {
       console.error(err);
-      alert(isEditing ? 'Error updating animal' : 'Error registering animal');
+      alert(`${isEditing ? 'Error updating animal' : 'Error registering animal'}: ${err.message}`);
     }
   };
 
@@ -146,7 +155,10 @@ export default function BioterioApp() {
       mark: animal.mark,
       genotype: animal.genotype,
       cage_id: animal.cage_id,
-      status: animal.status
+      status: animal.status,
+      external_id: animal.external_id || '',
+      origin_cage: animal.origin_cage || '',
+      notes: animal.notes || ''
     });
     setCageSearch('');
     setEditingAnimalId(animal.id);
@@ -268,7 +280,10 @@ export default function BioterioApp() {
           </button>
 
           <button
-            onClick={() => setShowAddModal(true)}
+            onClick={() => {
+              setNewAnimal({ sex: 'M', dob: new Date().toISOString().split('T')[0], mark: '', genotype: '', cage_id: null, status: 'Vivo', external_id: '', origin_cage: '', notes: '' });
+              setIsEditing(false); setEditingAnimalId(null); setCageSearch(''); setShowAddModal(true);
+            }}
             className="flex items-center gap-2 px-6 py-3 bg-white/10 hover:bg-biotech-accent hover:text-biotech-blue rounded-xl text-xs font-black uppercase tracking-widest transition-all group"
           >
             <Plus size={16} className="group-hover:rotate-90 transition-transform" />
@@ -575,6 +590,8 @@ export default function BioterioApp() {
                       <th className="px-6 py-4">DOB</th>
                       <th className="px-6 py-4">Genotype</th>
                       <th className="px-6 py-4">Age</th>
+                      <th className="px-6 py-4">Date</th>
+                      <th className="px-6 py-4">Notes</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -593,6 +610,10 @@ export default function BioterioApp() {
                         <td className="px-6 py-4 text-xs font-mono text-white/40">{animal.dob}</td>
                         <td className="px-6 py-4 text-sm text-white/60">{animal.genotype}</td>
                         <td className="px-6 py-4 text-xs font-mono text-biotech-accent font-bold">{animal.age_display}</td>
+                        <td className="px-6 py-4 text-xs font-mono text-white/50 whitespace-nowrap">{animal.status_changed_at ? animal.status_changed_at.slice(0, 10) : '—'}</td>
+                        <td className="px-6 py-4 text-xs text-white/50 max-w-xs truncate" title={[animal.notes, animal.origin_cage && `Origin: ${animal.origin_cage}`, animal.external_id && `ID: ${animal.external_id}`].filter(Boolean).join(' · ')}>
+                          {[animal.external_id, animal.notes].filter(Boolean).join(' · ') || '—'}
+                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -707,6 +728,18 @@ export default function BioterioApp() {
               <div className="col-span-2 flex flex-col gap-2">
                 <label className="text-[10px] font-black uppercase tracking-widest text-white/40 ml-1">Genotype</label>
                 <input required placeholder="WT / Cre-ERT2" value={newAnimal.genotype} onChange={e => setNewAnimal({...newAnimal, genotype: e.target.value})} className="bg-white/5 border border-white/10 rounded-xl px-4 py-3 outline-none focus:border-biotech-accent transition-colors font-mono" />
+              </div>
+              <div className="flex flex-col gap-2">
+                <label className="text-[10px] font-black uppercase tracking-widest text-white/40 ml-1">Individual ID</label>
+                <input placeholder="e.g. HF134" value={newAnimal.external_id} onChange={e => setNewAnimal({...newAnimal, external_id: e.target.value})} className="bg-white/5 border border-white/10 rounded-xl px-4 py-3 outline-none focus:border-biotech-accent transition-colors font-mono" />
+              </div>
+              <div className="flex flex-col gap-2">
+                <label className="text-[10px] font-black uppercase tracking-widest text-white/40 ml-1">Origin cage</label>
+                <input placeholder="Cage it came from" value={newAnimal.origin_cage} onChange={e => setNewAnimal({...newAnimal, origin_cage: e.target.value})} className="bg-white/5 border border-white/10 rounded-xl px-4 py-3 outline-none focus:border-biotech-accent transition-colors font-mono" />
+              </div>
+              <div className="col-span-2 flex flex-col gap-2">
+                <label className="text-[10px] font-black uppercase tracking-widest text-white/40 ml-1">Notes / experiments</label>
+                <textarea rows={2} placeholder="Samples, projects, observations" value={newAnimal.notes} onChange={e => setNewAnimal({...newAnimal, notes: e.target.value})} className="bg-white/5 border border-white/10 rounded-xl px-4 py-3 outline-none focus:border-biotech-accent transition-colors font-mono" />
               </div>
               
               <div className="col-span-2 mt-4 flex gap-4">

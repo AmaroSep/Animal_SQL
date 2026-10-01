@@ -13,6 +13,9 @@ class AnimalBase(BaseModel):
     genotype: str
     status: AnimalStatus = AnimalStatus.ALIVE
     elimination_reason: Optional[str] = None
+    external_id: Optional[str] = None
+    origin_cage: Optional[str] = None
+    notes: Optional[str] = None
 
 class AnimalCreate(AnimalBase):
     cage_id: int
@@ -23,10 +26,13 @@ class AnimalUpdate(BaseModel):
     mark: Optional[str] = None
     genotype: Optional[str] = None
     cage_id: Optional[int] = None
+    external_id: Optional[str] = None
+    origin_cage: Optional[str] = None
+    notes: Optional[str] = None
 
 class Animal(AnimalBase):
     id: int
-    cage_id: int
+    cage_id: Optional[int] = None   # dead / removed animals may have no current cage
     previous_cage_id: Optional[int] = None
     age_display: str
     status_changed_at: Optional[datetime] = None
@@ -49,6 +55,7 @@ class CageBase(BaseModel):
     rack_id: int
     is_breeding_pair: bool = False
     cage_number: Optional[int] = None
+    card_id: Optional[str] = None
 
 class CageOwner(BaseModel):
     id: int
@@ -72,6 +79,9 @@ class Cage(CageBase):
 
 class CageUpdate(BaseModel):
     is_breeding_pair: bool
+
+class CageCardUpdate(BaseModel):
+    card_id: Optional[str] = None
 
 class CageOwnerUpdate(BaseModel):
     cage_ids: List[int]

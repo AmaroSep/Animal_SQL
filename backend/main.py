@@ -126,6 +126,11 @@ def run_migrations():
             END IF;
         END$$;
         """,
+        # v6: extra animal / cage information (cage card, lineage, notes)
+        "ALTER TABLE animals ADD COLUMN IF NOT EXISTS external_id VARCHAR",
+        "ALTER TABLE animals ADD COLUMN IF NOT EXISTS origin_cage VARCHAR",
+        "ALTER TABLE animals ADD COLUMN IF NOT EXISTS notes TEXT",
+        "ALTER TABLE cages ADD COLUMN IF NOT EXISTS card_id VARCHAR",
         # v5: responsible user per cage, colour per user
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS color VARCHAR",
         "ALTER TABLE cages ADD COLUMN IF NOT EXISTS owner_id INTEGER REFERENCES users(id) ON DELETE SET NULL",
@@ -269,6 +274,20 @@ def update_cage_number(cage_id: int, update: schemas.CageNumberUpdate, request: 
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=400, detail=str(e))
+    db_cage.animals = [a for a in db_cage.animals if a.status == models.AnimalStatus.ALIVE]
+    for animal in db_cage.animals:
+        animal.age_display = calculate_age_display(animal.dob, animal.status_changed_at, animal.status)
+    return db_cage
+
+@app.patch("/cages/{cage_id}/card", response_model=schemas.Cage)
+def update_cage_card(cage_id: int, update: schemas.CageCardUpdate, request: Request, db: Session = Depends(get_db)):
+    db_cage = db.query(models.Cage).filter(models.Cage.id == cage_id).first()
+    if not db_cage:
+        raise HTTPException(status_code=404, detail="Cage not found")
+    check_cage(db, acting_user(request, db), db_cage)
+    db_cage.card_id = (update.card_id or "").strip() or None
+    db.commit()
+    db.refresh(db_cage)
     db_cage.animals = [a for a in db_cage.animals if a.status == models.AnimalStatus.ALIVE]
     for animal in db_cage.animals:
         animal.age_display = calculate_age_display(animal.dob, animal.status_changed_at, animal.status)
@@ -601,8 +620,9 @@ def export_animals_csv(db: Session = Depends(get_db)):
     
     # Headers
     writer.writerow([
-        "ID", "Cage Number", "Rack", "Cage Position", "Sex",
-        "Date of Birth", "Mark", "Genotype", "Status", "Age", "Elimination Reason"
+        "ID", "Cage Number", "Rack", "Cage Position", "Cage Card", "Responsible", "Sex",
+        "Date of Birth", "Mark", "Genotype", "Status", "Status Date", "Age", "Elimination Reason",
+        "Individual ID", "Origin Cage", "Notes"
     ])
 
     for animal in animals:
@@ -621,13 +641,19 @@ def export_animals_csv(db: Session = Depends(get_db)):
             cage_number,
             rack_name,
             cage_label,
-            animal.sex,
+            (cage.card_id or "") if cage else "",
+            (cage.owner.username if cage.owner else "") if cage else "",
+            animal.sex.value if animal.sex else "",
             animal.dob,
             animal.mark or "",
             animal.genotype,
-            animal.status,
+            animal.status.value if animal.status else "",
+            animal.status_changed_at.date().isoformat() if animal.status_changed_at else "",
             calculate_age_display(animal.dob, animal.status_changed_at, animal.status),
-            animal.elimination_reason or ""
+            animal.elimination_reason or "",
+            animal.external_id or "",
+            animal.origin_cage or "",
+            animal.notes or "",
         ])
     
     output.seek(0)
@@ -639,7 +665,8 @@ def export_animals_csv(db: Session = Depends(get_db)):
 
 @app.post("/import/animals/csv")
 async def import_animals_csv(request: Request, file: UploadFile = File(...), db: Session = Depends(get_db)):
-    if not is_admin(acting_user(request, db)):
+    importer = acting_user(request, db)
+    if not is_admin(importer):
         raise HTTPException(status_code=403, detail="Only administrators can import animals in bulk")
     content = await file.read()
     try:
@@ -696,8 +723,10 @@ async def import_animals_csv(request: Request, file: UploadFile = File(...), db:
             continue
 
         try:
-            sex_str = row.get("Sex", "M")
-            sex = models.AnimalSex.MALE if sex_str == "M" else models.AnimalSex.FEMALE
+            sex_str = (row.get("Sex") or "").strip().upper()
+            if sex_str not in ("M", "MALE", "F", "FEMALE"):
+                raise ValueError(f"Unknown sex '{row.get('Sex')}'")
+            sex = models.AnimalSex.MALE if sex_str in ("M", "MALE") else models.AnimalSex.FEMALE
 
             dob_str = row.get("Date of Birth")
             dob = parse_date(dob_str)
@@ -740,6 +769,21 @@ async def import_animals_csv(request: Request, file: UploadFile = File(...), db:
                     except Exception:
                         pass
 
+            # Optional columns
+            status_date = parse_date(row.get("Status Date")) if row.get("Status Date") else None
+            status_changed = (datetime.combine(status_date, datetime.min.time()) if status_date else datetime.utcnow())
+            extra = {k: (row.get(col) or "").strip() or None for k, col in (
+                ("elimination_reason", "Elimination Reason"), ("external_id", "Individual ID"),
+                ("origin_cage", "Origin Cage"), ("notes", "Notes"))}
+            if db_cage and status == models.AnimalStatus.ALIVE:
+                card = (row.get("Cage Card") or "").strip()
+                if card:
+                    db_cage.card_id = card
+                if db_cage.owner_id is None:
+                    resp = (row.get("Responsible") or "").strip().lower()
+                    owner = db.query(models.User).filter(models.User.username == resp).first() if resp else None
+                    db_cage.owner_id = (owner or importer).id
+
             # Check for existing animal by internal ID
             animal_id_str = row.get("ID", "").strip()
             db_animal = None
@@ -751,7 +795,10 @@ async def import_animals_csv(request: Request, file: UploadFile = File(...), db:
 
             if db_animal:
                 if status != db_animal.status:
-                    db_animal.status_changed_at = None if status == models.AnimalStatus.ALIVE else datetime.utcnow()
+                    db_animal.status_changed_at = None if status == models.AnimalStatus.ALIVE else status_changed
+                for k, v in extra.items():
+                    if v is not None:
+                        setattr(db_animal, k, v)
                 db_animal.sex = sex
                 db_animal.dob = dob
                 db_animal.genotype = genotype
@@ -761,15 +808,17 @@ async def import_animals_csv(request: Request, file: UploadFile = File(...), db:
                     db_animal.cage_id = db_cage.id
                 updated_count += 1
             else:
-                if db_cage:
+                # Live animals need a cage; dead / eliminated ones may be recorded without one
+                if db_cage or status != models.AnimalStatus.ALIVE:
                     new_animal = models.Animal(
                         sex=sex,
                         dob=dob,
                         genotype=genotype,
                         mark=mark,
                         status=status,
-                        status_changed_at=None if status == models.AnimalStatus.ALIVE else datetime.utcnow(),
-                        cage_id=db_cage.id
+                        status_changed_at=None if status == models.AnimalStatus.ALIVE else status_changed,
+                        cage_id=db_cage.id if db_cage and status == models.AnimalStatus.ALIVE else None,
+                        **extra,
                     )
                     db.add(new_animal)
                     created_count += 1

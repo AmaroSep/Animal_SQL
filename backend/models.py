@@ -52,6 +52,7 @@ class Cage(Base):
     rack_id = Column(Integer, ForeignKey("racks.id"))
     is_breeding_pair = Column(Boolean, default=False)
     cage_number = Column(Integer, nullable=True)
+    card_id = Column(String, nullable=True)            # facility cage card (e.g. CM002, 1176615)
     # Responsible user: only they (or an admin) may change the cage and its animals.
     # Empty cages have none; whoever puts animals in one takes it (see ownership.py).
     owner_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
@@ -84,6 +85,9 @@ class Animal(Base):
     previous_cage_id = Column(Integer, ForeignKey("cages.id"), nullable=True)
     genotype_validated = Column(Boolean, default=False)
     genotype_validated_at = Column(DateTime, nullable=True)
+    external_id = Column(String, nullable=True)        # individual ID from other records (e.g. HF134)
+    origin_cage = Column(String, nullable=True)        # cage it came from / was born in (lineage)
+    notes = Column(Text, nullable=True)                # experiments, samples, projects
 
     cage = relationship("Cage", back_populates="animals", foreign_keys=[cage_id])
 
