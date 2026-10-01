@@ -59,6 +59,8 @@ export default function BioterioApp() {
   const { user, isAdmin, canEdit } = useAuth();
   const [directory, setDirectory] = useState([]);
   const [onlyMine, setOnlyMine] = useState(false);
+  // Statistics show the signed-in user's cages; admins can switch to the whole colony
+  const [statsScope, setStatsScope] = useState('mine');
   useEffect(() => { fetchDirectory().then(setDirectory).catch(() => {}); }, []);
   const isMine = (cage) => cage.owner_id === user?.id;
   const canModifyCage = (cage) => !!cage && canEdit && (isAdmin || isMine(cage) ||
@@ -101,7 +103,7 @@ export default function BioterioApp() {
 
   const loadStatistics = async () => {
     try {
-      const data = await fetchStatistics();
+      const data = await fetchStatistics(statsScope);
       setStatsData(data);
     } catch (err) {
       console.error('Error loading statistics:', err);
@@ -256,7 +258,7 @@ export default function BioterioApp() {
   useEffect(() => {
     if (viewMode === 'history') loadHistory();
     if (viewMode === 'stats' || viewMode === 'river') loadStatistics();
-  }, [viewMode]);
+  }, [viewMode, statsScope]);
 
   return (
     <div className="min-h-screen selection:bg-biotech-accent selection:text-biotech-blue flex flex-col">
@@ -566,7 +568,22 @@ export default function BioterioApp() {
             </div>
           </div>
         ) : viewMode === 'river' ? (
+          <>
+          <div className="flex flex-wrap items-center gap-3 mb-4">
+            <span className="text-xs font-mono text-white/40">
+              {statsScope === 'all' ? 'Whole colony (all responsible users)' : `Your cages only${user?.full_name ? ` · ${user.full_name}` : ''}`}
+            </span>
+            {isAdmin && (
+              <div className="flex bg-white/5 p-1 rounded-xl border border-white/10">
+                {[['mine', 'Mine'], ['all', 'Whole colony']].map(([v, t]) => (
+                  <button key={v} onClick={() => setStatsScope(v)}
+                    className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest ${statsScope === v ? 'bg-biotech-accent text-biotech-blue' : 'text-white/40 hover:text-white'}`}>{t}</button>
+                ))}
+              </div>
+            )}
+          </div>
           <AgeRiverView data={statsData} />
+          </>
         ) : viewMode === 'history' ? (
           /* History View */
           <div className="glass rounded-[3rem] p-12 animate-in slide-in-from-bottom-8 duration-500 min-h-[60vh]">
@@ -622,7 +639,22 @@ export default function BioterioApp() {
           </div>
         ) : (
           /* Statistics View */
+          <>
+          <div className="flex flex-wrap items-center gap-3 mb-4">
+            <span className="text-xs font-mono text-white/40">
+              {statsScope === 'all' ? 'Whole colony (all responsible users)' : `Your cages only${user?.full_name ? ` · ${user.full_name}` : ''}`}
+            </span>
+            {isAdmin && (
+              <div className="flex bg-white/5 p-1 rounded-xl border border-white/10">
+                {[['mine', 'Mine'], ['all', 'Whole colony']].map(([v, t]) => (
+                  <button key={v} onClick={() => setStatsScope(v)}
+                    className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest ${statsScope === v ? 'bg-biotech-accent text-biotech-blue' : 'text-white/40 hover:text-white'}`}>{t}</button>
+                ))}
+              </div>
+            )}
+          </div>
           <StatisticsDashboard data={statsData} />
+          </>
         )}
       </main>
 

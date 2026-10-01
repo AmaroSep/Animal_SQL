@@ -63,7 +63,7 @@ export const updateAnimal = (id, data) => request(`/animals/${id}`, json('PUT', 
 export const updateAnimalStatus = (id, status, reason = null) =>
   request(`/animals/${id}/status`, json('PATCH', { status, reason }));
 export const fetchHistory = () => request('/animals/history');
-export const fetchStatistics = () => request('/statistics');
+export const fetchStatistics = (scope = 'mine') => request(`/statistics?scope=${scope}`);
 
 export const importAnimals = (file) => {
   const formData = new FormData();

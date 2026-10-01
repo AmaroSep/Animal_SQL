@@ -342,11 +342,14 @@ def get_animals_history(limit: int = 500, offset: int = 0, db: Session = Depends
     return animals
 
 @app.get("/statistics")
-def get_statistics(db: Session = Depends(get_db)):
-    # Feature B: Inventory statistics (Only live animals)
-    animals = db.query(models.Animal).filter(
-        models.Animal.status == models.AnimalStatus.ALIVE
-    ).all()
+def get_statistics(request: Request, scope: str = "mine", db: Session = Depends(get_db)):
+    # Inventory statistics of live animals. Each user sees their own cages;
+    # admins can ask for the whole colony with scope=all.
+    user = acting_user(request, db)
+    query = db.query(models.Animal).filter(models.Animal.status == models.AnimalStatus.ALIVE)
+    if not (scope == "all" and is_admin(user)):
+        query = query.join(models.Cage, models.Cage.id == models.Animal.cage_id).filter(models.Cage.owner_id == user.id)
+    animals = query.all()
     
     stats = {}
     age_distribution = {}
