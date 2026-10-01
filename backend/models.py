@@ -130,6 +130,9 @@ class EMGrid(Base):
     status = Column(SqlEnum(EMGridStatus), default=EMGridStatus.STORED)
     notes = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
+    created_by = Column(String, nullable=True)         # username, filled automatically (record_tracking.py)
+    updated_at = Column(DateTime, nullable=True)
+    updated_by = Column(String, nullable=True)
 
     box = relationship("EMGridBox", back_populates="grids")
     stain_steps = relationship(
@@ -211,6 +214,9 @@ class LNVial(Base):
     removed_by = Column(String, nullable=True)
     removed_note = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
+    created_by = Column(String, nullable=True)         # username, filled automatically (record_tracking.py)
+    updated_at = Column(DateTime, nullable=True)
+    updated_by = Column(String, nullable=True)
 
     box = relationship("LNBox", back_populates="vials")
 
@@ -303,5 +309,55 @@ class M80Tube(Base):
     removed_by = Column(String, nullable=True)
     removed_note = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
+    created_by = Column(String, nullable=True)         # username, filled automatically (record_tracking.py)
+    updated_at = Column(DateTime, nullable=True)
+    updated_by = Column(String, nullable=True)
 
     box = relationship("M80Box", back_populates="tubes")
+
+
+# ── Users & access ─────────────────────────────────────────────────────────
+
+class UserRole(str, enum.Enum):
+    ADMIN = "admin"      # everything, including user management
+    EDITOR = "editor"    # create / modify records
+    VIEWER = "viewer"    # read-only
+
+
+class User(Base):
+    __tablename__ = "users"
+
+    id = Column(Integer, primary_key=True, index=True)
+    username = Column(String, unique=True, index=True, nullable=False)
+    full_name = Column(String, nullable=True)
+    initials = Column(String, nullable=True)
+    password_hash = Column(String, nullable=False)
+    role = Column(SqlEnum(UserRole, values_callable=lambda e: [m.value for m in e]), nullable=False, default=UserRole.VIEWER)
+    active = Column(Boolean, default=True, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    last_login = Column(DateTime, nullable=True)
+
+
+class UserSession(Base):
+    __tablename__ = "user_sessions"
+
+    id = Column(Integer, primary_key=True)
+    token_hash = Column(String, unique=True, index=True, nullable=False)  # sha256 of the cookie value
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    expires_at = Column(DateTime, nullable=False)
+
+    user = relationship("User")
+
+
+class AuditLog(Base):
+    """Every request that changes data: who, what and when."""
+    __tablename__ = "audit_log"
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    username = Column(String, nullable=True)
+    method = Column(String, nullable=False)
+    path = Column(String, nullable=False)
+    status_code = Column(Integer, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)

@@ -8,6 +8,7 @@ import {
 import * as XLSX from 'xlsx';
 import { FIXED_LAYOUT_TYPES, getLayout, getPositions } from './boxLayouts';
 import { gridStatusLabel } from '../../utils/labels';
+import RecordStamp from '../../components/RecordStamp';
 
 // Defaults per box type. Quantifoil and EMS have a fixed physical layout
 // (boxLayouts.js); row_labels/columns only define "Custom" boxes.
@@ -348,11 +349,14 @@ function GridModal({ grid, box, boxes, position, suggestions, onClose, onSaved }
               <p className="text-sm text-white/70 whitespace-pre-wrap">{grid.notes}</p>
             </div>
           )}
-          <div className="flex justify-end gap-3 pt-2">
+          <div className="flex flex-wrap items-end justify-between gap-3 pt-2">
+            <RecordStamp record={grid} />
+            <div className="flex gap-3 ml-auto">
             <button type="button" onClick={onClose} className="px-5 py-3 rounded-xl text-xs font-black uppercase tracking-widest text-white/50 hover:bg-white/10">Close</button>
             <button type="button" onClick={() => setEditing(true)} className="flex items-center gap-2 px-6 py-3 rounded-xl text-xs font-black uppercase tracking-widest bg-violet-500 text-white hover:bg-violet-400">
               <Pencil size={14} /> Edit
             </button>
+            </div>
           </div>
         </div>
       </Modal>

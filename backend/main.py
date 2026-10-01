@@ -7,7 +7,9 @@ from fastapi.responses import StreamingResponse
 import io, csv, os
 import models, schemas, database
 from database import engine, get_db
-from routers import responsibles, em_grids, ln2, m80
+from routers import responsibles, em_grids, ln2, m80, auth
+from security import auth_guard
+import record_tracking  # noqa: F401  (registers the created_by / updated_by hooks)
 from utils import calculate_age_display, calculate_age_months
 
 # Create tables
@@ -15,14 +17,22 @@ models.Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="Bioterio Management System API")
 
+app.include_router(auth.router)
 app.include_router(responsibles.router)
 app.include_router(em_grids.router)
 app.include_router(ln2.router)
 app.include_router(m80.router)
 
+# Every request needs a signed-in user (see security.py). Registered before CORS so
+# that CORS stays the outermost layer and also decorates 401/403 responses.
+app.middleware("http")(auth_guard)
+
+# Browsers only send the session cookie to origins listed here (comma separated)
+CORS_ORIGINS = [o.strip() for o in os.getenv("CORS_ORIGINS", "http://localhost:5173").split(",") if o.strip()]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -115,6 +125,16 @@ def run_migrations():
             END IF;
         END$$;
         """,
+        # v4: who created / last edited each record
+        "ALTER TABLE em_grids ADD COLUMN IF NOT EXISTS created_by VARCHAR",
+        "ALTER TABLE em_grids ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP",
+        "ALTER TABLE em_grids ADD COLUMN IF NOT EXISTS updated_by VARCHAR",
+        "ALTER TABLE ln_vials ADD COLUMN IF NOT EXISTS created_by VARCHAR",
+        "ALTER TABLE ln_vials ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP",
+        "ALTER TABLE ln_vials ADD COLUMN IF NOT EXISTS updated_by VARCHAR",
+        "ALTER TABLE m80_tubes ADD COLUMN IF NOT EXISTS created_by VARCHAR",
+        "ALTER TABLE m80_tubes ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP",
+        "ALTER TABLE m80_tubes ADD COLUMN IF NOT EXISTS updated_by VARCHAR",
     ]
     with engine.connect() as conn:
         for sql in migrations:

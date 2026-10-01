@@ -7,6 +7,7 @@ import {
   fetchLNTank, fetchLNBox, updateLNBox, fetchLNVials, createLNVials, updateLNVial, removeLNVial, restoreLNVial, deleteLNVial,
 } from '../../services/api';
 import { exportRackToExcel } from './exportLabFormat';
+import RecordStamp from '../../components/RecordStamp';
 import { today, has, fmt, colorFor, compressWells, labelCls, Field, Modal } from '../storage/shared';
 
 const LOW_STOCK = 2; // highlight cell lines with this many vials or fewer
@@ -265,7 +266,8 @@ function VialModal({ vial, tank, suggestions, onClose, onSaved }) {
           </div>
         )}
         {error && <p className="text-red-400 text-sm font-mono">{error}</p>}
-        <div className="flex flex-wrap justify-end gap-3 pt-2">
+        <div className="flex flex-wrap items-end justify-end gap-3 pt-2">
+          <RecordStamp record={vial} className="mr-auto self-center" />
           <button onClick={onClose} className={btnGhost}>Close</button>
           <button onClick={() => setMode('edit')} className={btnGhost}><Pencil size={14} /> Edit</button>
           {inTank ? (

@@ -5,7 +5,7 @@ import StatisticsDashboard from './components/StatisticsDashboard';
 import AgeRiverView from './components/AgeRiverView';
 import { LayoutGrid, Database, Activity, RefreshCw, Plus, History, ChevronLeft, Skull, Trash2, BarChart3, Waves, X, Download, Upload, Home } from 'lucide-react';
 import { animalStatusLabel } from '../../utils/labels';
-import { fetchRacks, fetchRack, createAnimal, fetchHistory, fetchStatistics, updateAnimal, importAnimals, swapCagePositions } from '../../services/api';
+import { apiUrl, fetchRacks, fetchRack, createAnimal, fetchHistory, fetchStatistics, updateAnimal, importAnimals, swapCagePositions } from '../../services/api';
 
 export default function BioterioApp() {
   const navigate = useNavigate();
@@ -170,8 +170,7 @@ export default function BioterioApp() {
 
   const handleExportCSV = () => {
     // Open the backend CSV export link in a new tab for download
-    const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000';
-    window.open(`${apiUrl}/export/animals/csv`, '_blank');
+    window.open(apiUrl('/export/animals/csv'), '_blank');
   };
 
   const handleImportCSV = async (e) => {

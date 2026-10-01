@@ -2,8 +2,14 @@ const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
+export const AUTH_EXPIRED_EVENT = 'auth:expired';
+
 async function request(path, options = {}) {
-  const res = await fetch(`${API_URL}${path}`, options);
+  // credentials: send the session cookie (the API may be on another port in development)
+  const res = await fetch(`${API_URL}${path}`, { credentials: 'include', ...options });
+  if (res.status === 401 && !path.startsWith('/auth/')) {
+    window.dispatchEvent(new Event(AUTH_EXPIRED_EVENT));
+  }
   if (!res.ok) {
     let detail = 'Request failed';
     try { detail = (await res.json()).detail || detail; } catch (_) {}
@@ -16,6 +22,19 @@ async function request(path, options = {}) {
 function json(method, body) {
   return { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) };
 }
+
+// ── Auth & users ───────────────────────────────────────────────────────────
+
+export const fetchMe = () => request('/auth/me');
+export const login = (username, password) => request('/auth/login', json('POST', { username, password }));
+export const logout = () => request('/auth/logout', { method: 'POST' });
+export const changePassword = (current_password, new_password) =>
+  request('/auth/change-password', json('POST', { current_password, new_password }));
+export const fetchUsers = () => request('/auth/users');
+export const createUser = (data) => request('/auth/users', json('POST', data));
+export const updateUser = (id, data) => request(`/auth/users/${id}`, json('PUT', data));
+export const fetchAudit = (limit = 200) => request(`/auth/audit?limit=${limit}`);
+export const apiUrl = (path) => `${API_URL}${path}`;
 
 // ── Bioterio: Racks & Cages ────────────────────────────────────────────────
 

@@ -186,7 +186,10 @@ class EMGrid(EMGridBase):
     id: int
     box_id: int
     box_number: Optional[str] = None
+    created_by: Optional[str] = None
     created_at: Optional[datetime] = None
+    updated_by: Optional[str] = None
+    updated_at: Optional[datetime] = None
 
     class Config:
         from_attributes = True
@@ -277,6 +280,10 @@ class LNVial(LNVialData):
     removed_note: Optional[str] = None
     rack_number: Optional[int] = None
     box_number: Optional[int] = None
+    created_by: Optional[str] = None
+    created_at: Optional[datetime] = None
+    updated_by: Optional[str] = None
+    updated_at: Optional[datetime] = None
 
     class Config:
         from_attributes = True
@@ -432,6 +439,10 @@ class M80Tube(M80TubeData):
     removed_note: Optional[str] = None
     location: Optional[M80Location] = None
     box_label: Optional[str] = None
+    created_by: Optional[str] = None
+    created_at: Optional[datetime] = None
+    updated_by: Optional[str] = None
+    updated_at: Optional[datetime] = None
 
     class Config:
         from_attributes = True
@@ -475,3 +486,50 @@ class M80FreezerOut(BaseModel):
     room: Optional[str] = None
     notes: Optional[str] = None
     compartments: List[M80CompartmentOut] = []
+
+# ── Users & access ─────────────────────────────────────────────────────────
+
+class LoginRequest(BaseModel):
+    username: str
+    password: str
+
+class UserOut(BaseModel):
+    id: int
+    username: str
+    full_name: Optional[str] = None
+    initials: Optional[str] = None
+    role: models.UserRole
+    active: bool
+    last_login: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+class UserCreate(BaseModel):
+    username: str
+    password: str
+    full_name: Optional[str] = None
+    initials: Optional[str] = None
+    role: models.UserRole = models.UserRole.VIEWER
+
+class UserUpdate(BaseModel):
+    full_name: Optional[str] = None
+    initials: Optional[str] = None
+    role: Optional[models.UserRole] = None
+    active: Optional[bool] = None
+    password: Optional[str] = None      # admin reset
+
+class PasswordChange(BaseModel):
+    current_password: str
+    new_password: str
+
+class AuditEntry(BaseModel):
+    id: int
+    username: Optional[str] = None
+    method: str
+    path: str
+    status_code: Optional[int] = None
+    created_at: datetime
+
+    class Config:
+        from_attributes = True

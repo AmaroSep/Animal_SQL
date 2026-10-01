@@ -12,6 +12,7 @@ import {
 } from '../../services/api';
 import { today, has, fmt, colorFor, compressWells, labelCls, Field, Modal as BaseModal } from '../storage/shared';
 import { exportM80Inventory, shortLocation } from './exportInventory';
+import RecordStamp from '../../components/RecordStamp';
 
 const ACCENT = 'text-indigo-300';
 const Modal = (props) => <BaseModal accent={ACCENT} {...props} />;
@@ -556,7 +557,8 @@ function TubeModal({ tube, box, freezers, suggestions, onClose, onSaved }) {
           </div>
         )}
         <ErrorLine error={error} />
-        <div className="flex flex-wrap justify-end gap-3 pt-2">
+        <div className="flex flex-wrap items-end justify-end gap-3 pt-2">
+          <RecordStamp record={tube} className="mr-auto self-center" />
           <button onClick={onClose} className={btnGhost}>Close</button>
           <button onClick={() => setMode('edit')} className={btnGhost}><Pencil size={14} /> Edit</button>
           {inFreezer ? (
