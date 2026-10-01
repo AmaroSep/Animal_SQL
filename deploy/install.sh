@@ -24,7 +24,8 @@ $COMPOSE $profile up -d --build
 
 echo "Waiting for the API..."
 for i in $(seq 1 30); do
-  code=$($COMPOSE exec -T web wget -q -O /dev/null -S http://localhost/api/auth/me 2>&1 | awk '/HTTP\//{print $2}' | tail -1 || true)
+  # First status line of the response (wget also prints an error line for 401)
+  code=$($COMPOSE exec -T web wget -q -O /dev/null -S http://localhost/api/auth/me 2>&1 | awk '$1 ~ /^HTTP\// {print $2; exit}' || true)
   [ "$code" = "401" ] && { echo "Up: the API answers (401 = sign-in required, as expected)."; break; }
   sleep 2
 done
