@@ -24,7 +24,41 @@ const btnDanger = 'flex items-center gap-2 px-4 py-3 rounded-xl text-xs font-bla
 
 const SAMPLE_TYPES = ['Protein lysate', 'Brain homogenate', 'Tissue', 'Cell pellet', 'Supernatant', 'Serum', 'Plasma', 'CSF',
   'DNA', 'RNA', 'cDNA', 'Plasmid', 'Antibody', 'Recombinant protein', 'Buffer / reagent'];
-const BOX_SIZES = [{ label: '9 × 9 (81)', rows: 9, columns: 9 }, { label: '10 × 10 (100)', rows: 10, columns: 10 }];
+// Any layout is allowed (rows A–Z × up to 30 columns); these are just shortcuts
+const BOX_PRESETS = [[9, 9], [10, 10], [6, 10], [8, 12], [5, 5], [2, 2]];
+const MAX_ROWS = 26;
+const MAX_COLUMNS = 30;
+
+function BoxSizeField({ rows, columns, onChange, disabled, hint }) {
+  const n = (v) => (v === '' ? '' : Math.max(0, parseInt(v, 10) || 0));
+  const total = (Number(rows) || 0) * (Number(columns) || 0);
+  const valid = rows >= 1 && rows <= MAX_ROWS && columns >= 1 && columns <= MAX_COLUMNS;
+  return (
+    <div className="space-y-2">
+      <span className={labelCls}>Box size {hint && <span className="normal-case font-normal text-white/30">· {hint}</span>}</span>
+      <div className="flex items-center gap-2">
+        <input type="number" min="1" max={MAX_ROWS} required disabled={disabled} className={`${inputCls} w-24 text-center disabled:opacity-40`}
+          value={rows} onChange={(e) => onChange({ rows: n(e.target.value), columns })} aria-label="Rows" />
+        <span className="text-white/40 font-bold">×</span>
+        <input type="number" min="1" max={MAX_COLUMNS} required disabled={disabled} className={`${inputCls} w-24 text-center disabled:opacity-40`}
+          value={columns} onChange={(e) => onChange({ rows, columns: n(e.target.value) })} aria-label="Columns" />
+        <span className={`text-xs font-mono ml-2 ${valid ? 'text-white/50' : 'text-red-300'}`}>
+          {valid ? `${rows} rows × ${columns} columns = ${total} positions` : `1–${MAX_ROWS} rows, 1–${MAX_COLUMNS} columns`}
+        </span>
+      </div>
+      {!disabled && (
+        <div className="flex flex-wrap gap-2">
+          {BOX_PRESETS.map(([r, c]) => (
+            <button key={`${r}x${c}`} type="button" onClick={() => onChange({ rows: r, columns: c })}
+              className={`px-3 py-1.5 rounded-lg border text-[11px] font-mono ${Number(rows) === r && Number(columns) === c ? 'border-indigo-400 bg-indigo-500/20 text-white' : 'border-white/10 bg-white/5 text-white/60 hover:bg-white/10'}`}>
+              {r}×{c}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 const fullLocation = (l) =>
   `${l.freezer}${l.room ? ` (${l.room})` : ''} · Compartment ${l.compartment}${l.compartment_name ? ` ${l.compartment_name}` : ''} · Rack ${l.rack} · Level ${l.level} · Position ${l.slot}`;
@@ -148,22 +182,13 @@ function RackModal({ rack, compartmentId, onClose, onSaved }) {
 }
 
 function NewBoxModal({ rack, level, slot, onClose, onSaved }) {
-  const [size, setSize] = useState(0);
+  const [size, setSize] = useState({ rows: 9, columns: 9 });
   const [label, setLabel] = useState('');
   const [error, run] = useAction(onSaved);
   return (
     <Modal title="New box" subtitle={`Rack ${rack.number} · Level ${level} · Position ${slot}`} onClose={onClose}>
-      <form onSubmit={(e) => { e.preventDefault(); run(() => createM80Box({ rack_id: rack.id, level, slot, ...BOX_SIZES[size], label })); }} className="space-y-4">
-        <Field label="Box size">
-          <div className="grid grid-cols-2 gap-3">
-            {BOX_SIZES.map((s, i) => (
-              <button key={s.label} type="button" onClick={() => setSize(i)}
-                className={`py-3 rounded-xl border text-sm font-bold ${size === i ? 'border-indigo-400 bg-indigo-500/20' : 'border-white/10 bg-white/5 hover:bg-white/10'}`}>
-                {s.label}
-              </button>
-            ))}
-          </div>
-        </Field>
+      <form onSubmit={(e) => { e.preventDefault(); run(() => createM80Box({ rack_id: rack.id, level, slot, rows: Number(size.rows), columns: Number(size.columns), label })); }} className="space-y-4">
+        <BoxSizeField rows={size.rows} columns={size.columns} onChange={setSize} hint="rows × columns" />
         <Field label="Label"><input className={inputCls} value={label} onChange={(e) => setLabel(e.target.value)} placeholder="e.g. PS19 brain lysates" /></Field>
         <ErrorLine error={error} />
         <div className="flex justify-end gap-3">
@@ -578,8 +603,9 @@ function TubeModal({ tube, box, freezers, suggestions, onClose, onSaved }) {
 function BoxEditModal({ box, freezers, onClose, onSaved }) {
   const [form, setForm] = useState({
     label: box.label || '', restriction: box.restriction || '', notes: box.notes || '',
-    rack_id: box.rack_id, level: box.level, slot: box.slot, size: box.rows === 10 ? 1 : 0,
+    rack_id: box.rack_id, level: box.level, slot: box.slot, rows: box.rows, columns: box.columns,
   });
+  const hasTubes = box.tubes.some((t) => t.status === 'In freezer');
   const [error, run] = useAction(onSaved);
   const racks = freezers.flatMap((f) => f.compartments.flatMap((c) => c.racks.map((r) => ({ ...r, name: `${f.name} · Compartment ${c.number} · Rack ${r.number}` }))));
   const rack = racks.find((r) => r.id === Number(form.rack_id));
@@ -587,7 +613,8 @@ function BoxEditModal({ box, freezers, onClose, onSaved }) {
     e.preventDefault();
     run(() => updateM80Box(box.id, {
       label: form.label, restriction: form.restriction, notes: form.notes,
-      rack_id: Number(form.rack_id), level: Number(form.level), slot: Number(form.slot), ...BOX_SIZES[form.size],
+      rack_id: Number(form.rack_id), level: Number(form.level), slot: Number(form.slot),
+      ...(hasTubes ? {} : { rows: Number(form.rows), columns: Number(form.columns) }),
     }));
   };
   return (
@@ -595,11 +622,11 @@ function BoxEditModal({ box, freezers, onClose, onSaved }) {
       <form onSubmit={submit} className="space-y-4">
         <div className="grid grid-cols-2 gap-4">
           <Field label="Label"><input className={inputCls} value={form.label} onChange={(e) => setForm({ ...form, label: e.target.value })} /></Field>
-          <Field label="Size (only while empty)">
-            <select className={inputCls} value={form.size} onChange={(e) => setForm({ ...form, size: Number(e.target.value) })}>
-              {BOX_SIZES.map((s, i) => <option key={s.label} value={i} className="bg-slate-900">{s.label}</option>)}
-            </select>
-          </Field>
+          <div className="col-span-2">
+            <BoxSizeField rows={form.rows} columns={form.columns} disabled={hasTubes}
+              hint={hasTubes ? 'can only change while the box is empty' : 'rows × columns'}
+              onChange={(sz) => setForm({ ...form, ...sz })} />
+          </div>
           <Field label="Rule (shown as a warning)" className="col-span-2"><input className={inputCls} value={form.restriction} onChange={(e) => setForm({ ...form, restriction: e.target.value })} placeholder="Only for Tau project samples" /></Field>
           <Field label="Notes" className="col-span-2"><textarea rows={3} className={inputCls} value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} /></Field>
         </div>

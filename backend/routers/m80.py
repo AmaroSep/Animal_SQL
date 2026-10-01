@@ -10,7 +10,13 @@ from database import get_db
 router = APIRouter(prefix="/m80", tags=["-80 freezers"])
 
 IN_FREEZER = models.M80TubeStatus.IN_FREEZER
-BOX_SIZES = {(9, 9), (10, 10)}
+# Any box layout: rows are lettered A–Z in the box maps, columns numbered
+MAX_ROWS, MAX_COLUMNS = 26, 30
+
+
+def _check_box_size(rows: int, columns: int):
+    if not (1 <= rows <= MAX_ROWS and 1 <= columns <= MAX_COLUMNS):
+        raise HTTPException(status_code=400, detail=f"Box size must be 1–{MAX_ROWS} rows by 1–{MAX_COLUMNS} columns")
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────
@@ -254,8 +260,7 @@ def get_box(box_id: int, db: Session = Depends(get_db)):
 @router.post("/boxes", response_model=schemas.M80BoxDetail, status_code=201)
 def create_box(data: schemas.M80BoxCreate, db: Session = Depends(get_db)):
     rack = _get(db, models.M80Rack, data.rack_id, "Rack")
-    if (data.rows, data.columns) not in BOX_SIZES:
-        raise HTTPException(status_code=400, detail="Box size must be 9x9 (81) or 10x10 (100)")
+    _check_box_size(data.rows, data.columns)
     _check_slot(db, rack, data.level, data.slot)
     box = models.M80Box(**data.model_dump())
     box.label = box.label or None
@@ -274,8 +279,7 @@ def update_box(box_id: int, data: schemas.M80BoxUpdate, db: Session = Depends(ge
         _check_slot(db, rack, changes.get("level", box.level), changes.get("slot", box.slot), exclude_box_id=box.id)
     if {"rows", "columns"} & changes.keys():
         size = (changes.get("rows", box.rows), changes.get("columns", box.columns))
-        if size not in BOX_SIZES:
-            raise HTTPException(status_code=400, detail="Box size must be 9x9 (81) or 10x10 (100)")
+        _check_box_size(*size)
         if size != (box.rows, box.columns) and any(t.status == IN_FREEZER for t in box.tubes):
             raise HTTPException(status_code=400, detail="The box size can only change while the box is empty")
     for k, v in changes.items():
