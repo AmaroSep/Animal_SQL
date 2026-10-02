@@ -1,5 +1,5 @@
 import * as XLSX from 'xlsx';
-import { today, compressWells } from '../storage/shared';
+import { today } from '../storage/shared';
 
 // Excel inventory of one or all -80 freezers, meant for sharing:
 //  - Inventory: one row per tube in the freezer, with its full location
@@ -19,6 +19,22 @@ const cmpLoc = (a, b) => {
   }
   return a.well - b.well;
 };
+// Position inside a box as row-column, the lab's "Location in Box" (1-1, 1-2 ... 2-1)
+export const coord = (well, columns) => (columns ? `${Math.floor((well - 1) / columns) + 1}-${((well - 1) % columns) + 1}` : `#${well}`);
+
+// [1,2,3,5,11] in a 10-column box -> "1-1–1-3, 1-5, 2-1" (runs only within a row)
+export const coordList = (wells, columns) => {
+  const w = [...wells].sort((a, b) => a - b);
+  const out = [];
+  for (let i = 0; i < w.length; i++) {
+    let j = i;
+    while (j + 1 < w.length && w[j + 1] === w[j] + 1 && (!columns || Math.ceil(w[j + 1] / columns) === Math.ceil(w[i] / columns))) j++;
+    out.push(j > i ? `${coord(w[i], columns)}–${coord(w[j], columns)}` : coord(w[i], columns));
+    i = j;
+  }
+  return out.join(', ');
+};
+
 export const shortLocation = (l) => `${l.freezer} · C${l.compartment} · R${l.rack} · L${l.level} · P${l.slot}`;
 
 const tubeRow = (t) => ({
@@ -29,7 +45,7 @@ const tubeRow = (t) => ({
   Level: t.location.level,
   'Position (1 = front)': t.location.slot,
   Box: t.box_label ?? '',
-  Well: t.well,
+  'Location in Box': coord(t.well, t.location.columns),
   Sample: t.sample_name,
   Type: t.sample_type ?? '',
   'Aliquot #': t.aliquot_number ?? '',
@@ -75,7 +91,7 @@ const typeRow = (t, fields, boxesById) => {
     Level: l.level,
     Depth: l.slot === 1 ? '1 (Front)' : l.slot,
     'Box Name': t.box_label ?? '',
-    'Location in Box': b ? `${Math.floor((t.well - 1) / b.columns) + 1}-${((t.well - 1) % b.columns) + 1}` : t.well,
+    'Location in Box': coord(t.well, b?.columns ?? t.location.columns),
     Status: t.status,
     Notes: t.comment ?? '',
   };
@@ -101,13 +117,13 @@ export function exportM80Inventory(freezers, tubes, freezerId = null, types = []
     const g = (bySample[t.sample_name] ??= { types: new Set(), count: 0, boxes: {} });
     if (t.sample_type) g.types.add(t.sample_type);
     g.count += 1;
-    (g.boxes[shortLocation(t.location)] ??= []).push(t.well);
+    (g.boxes[shortLocation(t.location)] ??= { columns: t.location.columns, wells: [] }).wells.push(t.well);
   });
   const summary = Object.entries(bySample).sort(([a], [b]) => a.localeCompare(b)).map(([name, g]) => ({
     Sample: name,
     Type: [...g.types].join(', '),
     Tubes: g.count,
-    Locations: Object.entries(g.boxes).map(([loc, wells]) => `${loc}: ${compressWells(wells)}`).join(' | '),
+    Locations: Object.entries(g.boxes).map(([loc, b]) => `${loc}: ${coordList(b.wells, b.columns)}`).join(' | '),
   }));
   const sum = XLSX.utils.json_to_sheet(summary.length ? summary : [{ Sample: 'No tubes stored' }]);
   sum['!cols'] = [34, 18, 7, 90].map((wch) => ({ wch }));
@@ -119,13 +135,13 @@ export function exportM80Inventory(freezers, tubes, freezerId = null, types = []
   scope.forEach((f) => f.compartments.forEach((c) => c.racks.forEach((r) => r.boxes.forEach((b) => {
     const loc = `${f.name} C${c.number} R${r.number} L${b.level} P${b.slot}`;
     const title = `${f.name}${f.room ? ` (${f.room})` : ''} · Compartment ${c.number}${c.name ? ` ${c.name}` : ''} · Rack ${r.number} · Level ${b.level} · Position ${b.slot}${b.label ? ` · ${b.label}` : ''}`;
-    const aoa = [[title], [], ['', ...Array.from({ length: b.columns }, (_, i) => i + 1)]];
+    const aoa = [[title], ['Rows down, columns across: position 1-3 = row 1, column 3'], ['', ...Array.from({ length: b.columns }, (_, i) => i + 1)]];
     for (let row = 0; row < b.rows; row++) {
-      const line = [String.fromCharCode(65 + row)];
+      const line = [row + 1];
       for (let col = 1; col <= b.columns; col++) {
         const well = row * b.columns + col;
         const t = tubesByBox[b.id]?.[well];
-        line.push(t ? `${well}: ${t.sample_name}` : well);
+        line.push(t ? t.sample_name : '');
       }
       aoa.push(line);
     }

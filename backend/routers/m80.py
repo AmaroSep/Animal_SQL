@@ -36,6 +36,7 @@ def _location(box: models.M80Box) -> schemas.M80Location:
     return schemas.M80Location(
         freezer=comp.freezer.name, room=comp.freezer.room, compartment=comp.number,
         compartment_name=comp.name, rack=rack.number, level=box.level, slot=box.slot,
+        rows=box.rows, columns=box.columns,
     )
 
 

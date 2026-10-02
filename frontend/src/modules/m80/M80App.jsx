@@ -15,8 +15,8 @@ import { useAuth } from '../../auth/AuthContext';
 import {
   TypeFieldsInput, SampleTypesPanel, M80ImportPanel, AnimalInfo, typeStyle, typeColor, visibleFields, formatValue,
 } from './sampleTypes';
-import { today, has, fmt, colorFor, compressWells, labelCls, Field, Modal as BaseModal } from '../storage/shared';
-import { exportM80Inventory, shortLocation } from './exportInventory';
+import { today, has, fmt, colorFor, labelCls, Field, Modal as BaseModal } from '../storage/shared';
+import { exportM80Inventory, shortLocation, coord, coordList } from './exportInventory';
 import RecordStamp from '../../components/RecordStamp';
 
 const ACCENT = 'text-indigo-300';
@@ -470,7 +470,7 @@ function AddTubesModal({ box, wells, suggestions, types, canSee, onClose, onSave
     }));
   };
   return (
-    <Modal wide title={`Store ${sorted.length} tube${many ? 's' : ''}`} subtitle={`${fullLocation(box.location)} · positions ${compressWells(sorted)}`} onClose={onClose}>
+    <Modal wide title={`Store ${sorted.length} tube${many ? 's' : ''}`} subtitle={`${fullLocation(box.location)} · positions ${coordList(sorted, box.columns)}`} onClose={onClose}>
       <form onSubmit={submit} className="space-y-5">
         {box.restriction && (
           <p className="flex gap-2 text-xs text-amber-200 bg-amber-500/10 border border-amber-400/30 rounded-xl p-3"><AlertTriangle size={14} className="shrink-0 mt-0.5" /> {box.restriction}</p>
@@ -483,7 +483,7 @@ function AddTubesModal({ box, wells, suggestions, types, canSee, onClose, onSave
               <span className="text-white/30 font-mono">Pos.</span><span className="text-white/30 font-mono">Aliquot #</span><span className="text-white/30 font-mono">Volume</span>
               {items.map((it, i) => (
                 <React.Fragment key={it.well}>
-                  <span className="font-mono text-white/60">#{it.well}</span>
+                  <span className="font-mono text-white/60">{coord(it.well, box.columns)}</span>
                   <input type="number" min="1" className={`${inputCls} py-2`} value={it.aliquot_number} onChange={(e) => setItem(i, { aliquot_number: e.target.value })} />
                   <input className={`${inputCls} py-2`} value={it.volume} placeholder={form.volume || 'default'} onChange={(e) => setItem(i, { volume: e.target.value })} />
                 </React.Fragment>
@@ -509,19 +509,25 @@ function TubeModal({ tube, box, freezers, suggestions, types, canSee, onClose, o
   const [removal, setRemoval] = useState({ status: 'Used', removed_date: today(), removed_by: '', removed_note: '' });
   const [error, run] = useAction(onSaved);
   const inFreezer = tube.status === 'In freezer';
-  const where = `${fullLocation(box.location)} · #${tube.well}`;
+  const pos = coord(tube.well, box.columns);
+  const where = `${fullLocation(box.location)} · position ${pos}`;
 
   const startRemove = (status) => {
-    if (tube.reserved && !confirm(`${tube.sample_name} #${tube.well} is RESERVED. Use or discard it anyway?`)) return;
+    if (tube.reserved && !confirm(`${tube.sample_name} ${pos} is RESERVED. Use or discard it anyway?`)) return;
     setRemoval({ ...removal, status });
     setMode('remove');
   };
 
   if (mode === 'edit') {
     const allBoxes = freezers.flatMap((f) => f.compartments.flatMap((c) => c.racks.flatMap((r) => r.boxes.map((b) => ({
-      id: b.id, capacity: b.capacity, name: `${f.name} · C${c.number} · R${r.number} · L${b.level} · P${b.slot}${b.label ? ` (${b.label})` : ''}`,
+      id: b.id, capacity: b.capacity, rows: b.rows, columns: b.columns, name: `${f.name} · C${c.number} · R${r.number} · L${b.level} · P${b.slot}${b.label ? ` (${b.label})` : ''}`,
     })))));
     const target = allBoxes.find((b) => b.id === Number(form.box_id));
+    // Position as row-column of the chosen box
+    const cols = target?.columns || box.columns;
+    const posRow = Math.floor((Number(form.well) - 1) / cols) + 1;
+    const posCol = ((Number(form.well) - 1) % cols) + 1;
+    const setPos = (r, c) => setForm({ ...form, well: (Number(r) - 1) * cols + Number(c) });
     const save = (e) => {
       e.preventDefault();
       run(() => updateM80Tube(tube.id, {
@@ -538,8 +544,12 @@ function TubeModal({ tube, box, freezers, suggestions, types, canSee, onClose, o
                 {allBoxes.map((b) => <option key={b.id} value={b.id} className="bg-slate-900">{b.name}</option>)}
               </select>
             </Field>
-            <Field label="Position">
-              <input type="number" min="1" max={target ? target.capacity : 100} required className={inputCls} value={form.well} onChange={(e) => setForm({ ...form, well: e.target.value })} />
+            <Field label="Position (row-column)">
+              <div className="flex items-center gap-2">
+                <input type="number" min="1" max={target?.rows || box.rows} required className={`${inputCls} text-center`} value={posRow} onChange={(e) => setPos(e.target.value, posCol)} aria-label="Row" />
+                <span className="text-white/40 font-bold">-</span>
+                <input type="number" min="1" max={cols} required className={`${inputCls} text-center`} value={posCol} onChange={(e) => setPos(posRow, e.target.value)} aria-label="Column" />
+              </div>
             </Field>
           </div>
           <TubeFields form={form} setForm={setForm} suggestions={suggestions} types={types} canSee={canSee} />
@@ -569,7 +579,7 @@ function TubeModal({ tube, box, freezers, suggestions, types, canSee, onClose, o
   if (mode === 'remove') {
     const use = removal.status === 'Used';
     return (
-      <Modal title={use ? 'Use tube' : 'Discard tube'} subtitle={`${tube.sample_name} · #${tube.well}`} onClose={onClose}>
+      <Modal title={use ? 'Use tube' : 'Discard tube'} subtitle={`${tube.sample_name} · ${pos}`} onClose={onClose}>
         <div className="space-y-4">
           <p className="text-sm text-white/60">The tube leaves the freezer and its position becomes free. The record stays in the history.</p>
           <div className="grid grid-cols-2 gap-4">
@@ -605,7 +615,7 @@ function TubeModal({ tube, box, freezers, suggestions, types, canSee, onClose, o
   const typeRows = visibleFields(type, canSee).filter((f) => f.type !== 'animal');
   const hiddenCount = (type?.fields || []).length - visibleFields(type, canSee).length;
   return (
-    <Modal wide title={tube.sample_name} subtitle={`#${tube.well}`} onClose={onClose}>
+    <Modal wide title={tube.sample_name} subtitle={`Position ${pos}${tube.aliquot_number ? ` · aliquot ${tube.aliquot_number}` : ''}`} onClose={onClose}>
       <div className="space-y-5">
         <div className="flex flex-wrap gap-2">
           <span className={`px-2 py-1 rounded-md border text-[10px] font-black uppercase ${inFreezer ? 'bg-indigo-500/20 text-indigo-300 border-indigo-400/40' : 'bg-white/5 text-white/50 border-white/10'}`}>{tube.status}</span>
@@ -780,7 +790,7 @@ function BoxView({ boxId, freezers, suggestions, types, canSee, onBack, onFreeze
 
         <div className="flex flex-wrap items-center gap-3 bg-black/30 rounded-2xl px-4 py-3">
           <span className="text-xs font-mono text-white/50">
-            {selected.length ? `${selected.length} selected: ${compressWells(selected)}` : 'Click empty positions to select where to store new tubes.'}
+            {selected.length ? `${selected.length} selected: ${coordList(selected, box.columns)}` : 'Click empty positions to select where to store new tubes.'}
           </span>
           <div className="flex gap-2 ml-auto">
             {!selected.length && free > 0 && (
@@ -796,22 +806,28 @@ function BoxView({ boxId, freezers, suggestions, types, canSee, onBack, onFreeze
         </div>
 
         <div className="overflow-x-auto">
-          <div className="grid gap-1.5 mx-auto w-max" style={{ gridTemplateColumns: `repeat(${box.columns}, 4.25rem)` }}>
-            {Array.from({ length: box.capacity }, (_, i) => i + 1).map((w) => {
+          <div className="grid gap-1.5 mx-auto w-max items-center" style={{ gridTemplateColumns: `1.5rem repeat(${box.columns}, 4.25rem)` }}>
+            <span />
+            {Array.from({ length: box.columns }, (_, i) => <span key={`c${i}`} className="text-center text-[10px] font-mono font-bold text-white/30">{i + 1}</span>)}
+            {Array.from({ length: box.capacity }, (_, i) => i + 1).flatMap((w) => {
               const t = byWell[w];
               const isSel = selected.includes(w);
-              return (
+              const cell = (
                 <button key={w} onClick={() => (t ? setModal(t) : toggle(w))}
-                  title={t ? `#${w} · ${t.sample_name}${t.aliquot_number ? ` · aliquot ${t.aliquot_number}` : ''}${t.sample_type ? ` · ${t.sample_type}` : ''}${t.volume ? ` · ${t.volume}` : ''}${t.reserved ? ' · RESERVED' : ''}` : `#${w} · empty`}
+                  title={t ? `${coord(w, box.columns)} · ${t.sample_name}${t.aliquot_number ? ` · aliquot ${t.aliquot_number}` : ''}${t.sample_type ? ` · ${t.sample_type}` : ''}${t.volume ? ` · ${t.volume}` : ''}${t.reserved ? ' · RESERVED' : ''}` : `${coord(w, box.columns)} · empty`}
                   style={t && typeOf(t) ? typeStyle(typeOf(t)) : undefined}
                   className={`relative h-[4.25rem] rounded-lg border p-1.5 text-left transition-all hover:scale-105 ${
                     t ? (typeOf(t) ? '' : colorFor(t.sample_name)) : isSel ? 'border-indigo-300 bg-indigo-400/30' : 'border-dashed border-white/10 hover:border-indigo-400/60'
                   }`}>
-                  <div className="text-[9px] font-mono font-bold text-white/60">{w}{t?.aliquot_number ? <span className="text-white/40"> · a{t.aliquot_number}</span> : ''}</div>
+                  <div className="text-[9px] font-mono font-bold text-white/60">{coord(w, box.columns)}{t?.aliquot_number ? <span className="text-white/40"> · a{t.aliquot_number}</span> : ''}</div>
                   {t && <div className="text-[10px] font-black leading-tight text-white line-clamp-3 break-words">{t.sample_name}</div>}
                   {t?.reserved && <Lock size={10} className="absolute top-1.5 right-1.5 text-amber-200" />}
                 </button>
               );
+              // Row number before the first position of each row
+              return (w - 1) % box.columns === 0
+                ? [<span key={`r${w}`} className="text-right pr-1 text-[10px] font-mono font-bold text-white/30">{Math.ceil(w / box.columns)}</span>, cell]
+                : [cell];
             })}
           </div>
         </div>
@@ -836,7 +852,7 @@ function BoxView({ boxId, freezers, suggestions, types, canSee, onBack, onFreeze
           <div className="divide-y divide-white/5">
             {history.map((t) => (
               <button key={t.id} onClick={() => setModal(t)} className="w-full flex flex-wrap gap-x-4 py-2 text-left text-xs font-mono hover:bg-white/5">
-                <span className="text-white/40 w-10">#{t.well}</span>
+                <span className="text-white/40 w-12">{coord(t.well, box.columns)}</span>
                 <span className="text-white/80 w-56 truncate">{t.sample_name}</span>
                 <span className="text-white/50">{t.status} {fmt(t.removed_date)}{t.removed_by ? ` · ${t.removed_by}` : ''}</span>
                 {t.removed_note && <span className="text-white/30 truncate max-w-md">{t.removed_note}</span>}
@@ -874,7 +890,7 @@ function TypeTable({ type, tubes, canSee, onOpenBox }) {
               <td className={`${td} font-bold`}>{t.sample_name}</td><td className={td}>{fmt(t.aliquot_number)}</td><td className={td}>{fmt(t.volume)}</td>
               {fields.map((f) => <td key={f.key} className={td}>{formatValue(f, t.data?.[f.key])}</td>)}
               <td className={td}>{t.animal?.genotype || ''}</td>
-              <td className={`${td} text-white/50`}>{shortLocation(t.location)} · #{t.well}</td>
+              <td className={`${td} text-white/50`}>{shortLocation(t.location)} · {coord(t.well, t.location.columns)}</td>
             </tr>
           ))}
         </tbody>
@@ -902,7 +918,7 @@ function SearchView({ tubes, types, canSee, onOpenBox }) {
       if (t.sample_type) g.types.add(t.sample_type);
       g.count += 1;
       if (t.reserved) g.reserved += 1;
-      (g.boxes[t.box_id] ??= { loc: shortLocation(t.location), wells: [] }).wells.push(t.well);
+      (g.boxes[t.box_id] ??= { loc: shortLocation(t.location), columns: t.location.columns, wells: [] }).wells.push(t.well);
     });
     return Object.values(bySample).sort((a, b) => a.name.localeCompare(b.name));
   }, [tubes, query, typeId]);
@@ -942,7 +958,7 @@ function SearchView({ tubes, types, canSee, onOpenBox }) {
             <div className="flex flex-wrap gap-2 flex-1">
               {Object.entries(g.boxes).map(([boxId, b]) => (
                 <button key={boxId} onClick={() => onOpenBox(Number(boxId))} className="px-2 py-1 rounded-md bg-white/5 hover:bg-indigo-500/30 text-[11px] font-mono text-white/70">
-                  {b.loc}: {compressWells(b.wells)}
+                  {b.loc}: {coordList(b.wells, b.columns)}
                 </button>
               ))}
             </div>
@@ -958,7 +974,7 @@ function SearchView({ tubes, types, canSee, onOpenBox }) {
             {removed.map((t) => (
               <button key={t.id} onClick={() => onOpenBox(t.box_id)} className="w-full flex flex-wrap gap-x-4 py-2 text-left text-xs font-mono hover:bg-white/5">
                 <span className="text-white/80 w-64 truncate">{t.sample_name}</span>
-                <span className="text-white/40 w-72">{shortLocation(t.location)} · #{t.well}</span>
+                <span className="text-white/40 w-72">{shortLocation(t.location)} · {coord(t.well, t.location.columns)}</span>
                 <span className="text-white/50">{t.status} {fmt(t.removed_date)}{t.removed_by ? ` · ${t.removed_by}` : ''}</span>
               </button>
             ))}

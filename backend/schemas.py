@@ -500,6 +500,8 @@ class M80Location(BaseModel):
     rack: int
     level: int
     slot: int
+    rows: Optional[int] = None          # box size, to show positions as row-column
+    columns: Optional[int] = None
 
 class M80Tube(M80TubeData):
     id: int
