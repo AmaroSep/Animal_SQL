@@ -127,6 +127,11 @@ def run_migrations():
             END IF;
         END$$;
         """,
+        # v9: -80 sample types with their own fields; access to restricted (clinical) fields
+        "ALTER TABLE m80_tubes ADD COLUMN IF NOT EXISTS sample_type_id INTEGER REFERENCES m80_sample_types(id)",
+        "ALTER TABLE m80_tubes ADD COLUMN IF NOT EXISTS data JSONB",
+        "ALTER TABLE m80_tubes ADD COLUMN IF NOT EXISTS aliquot_number INTEGER",
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS restricted_access BOOLEAN NOT NULL DEFAULT FALSE",
         # v8: removed animals keep their responsible user and cage card
         "ALTER TABLE animals ADD COLUMN IF NOT EXISTS responsible_id INTEGER REFERENCES users(id) ON DELETE SET NULL",
         "ALTER TABLE animals ADD COLUMN IF NOT EXISTS last_cage_card VARCHAR",
@@ -171,9 +176,10 @@ def startup_event():
     # 2. Apply column-level migrations for existing tables
     run_migrations()
 
-    # 3. Seed racks/cages if first run
+    # 3. Seed racks/cages if first run, and the default -80 sample types
     db = database.SessionLocal()
     try:
+        m80.seed_sample_types(db)
         if db.query(models.Rack).count() == 0:
             for i in [3, 4, 5]:
                 rack = models.Rack(name=f"RACK {i}")

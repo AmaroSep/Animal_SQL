@@ -1,5 +1,6 @@
 from sqlalchemy import Column, Integer, String, Date, DateTime, ForeignKey, Boolean, Float, Text, Enum as SqlEnum
 from datetime import datetime
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import relationship
 import enum
 from database import Base
@@ -304,6 +305,20 @@ class M80Box(Base):
     tubes = relationship("M80Tube", back_populates="box", order_by="M80Tube.well")
 
 
+class M80SampleType(Base):
+    """A kind of sample (CSF, brain, ...) and the extra fields its tubes record.
+    `fields` is a list of {key, label, type: text|number|date|choice|animal|formula,
+    options?, unit?, formula? ("a / b"), restricted?}. Restricted fields (clinical
+    data) are only shown to admins and users with restricted_access."""
+    __tablename__ = "m80_sample_types"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, nullable=False, unique=True)
+    color = Column(String, nullable=True)
+    description = Column(Text, nullable=True)
+    fields = Column(JSONB, nullable=False, default=list)
+
+
 class M80Tube(Base):
     __tablename__ = "m80_tubes"
 
@@ -312,6 +327,9 @@ class M80Tube(Base):
     well = Column(Integer, nullable=False)             # 1..rows*columns, row by row
     sample_name = Column(String, nullable=False, index=True)
     sample_type = Column(String, nullable=True)        # lysate, DNA, RNA, serum, tissue...
+    sample_type_id = Column(Integer, ForeignKey("m80_sample_types.id"), nullable=True, index=True)
+    data = Column(JSONB, nullable=True)                # values of the sample type's fields
+    aliquot_number = Column(Integer, nullable=True)
     source = Column(String, nullable=True)             # animal / subject / cell line it came from
     concentration = Column(String, nullable=True)
     volume = Column(String, nullable=True)
@@ -330,6 +348,7 @@ class M80Tube(Base):
     updated_by = Column(String, nullable=True)
 
     box = relationship("M80Box", back_populates="tubes")
+    type = relationship("M80SampleType")
 
 
 # ── Users & access ─────────────────────────────────────────────────────────
@@ -351,6 +370,7 @@ class User(Base):
     role = Column(SqlEnum(UserRole, values_callable=lambda e: [m.value for m in e]), nullable=False, default=UserRole.VIEWER)
     active = Column(Boolean, default=True, nullable=False)
     color = Column(String, nullable=True)  # hex colour marking this user's cages
+    restricted_access = Column(Boolean, default=False, nullable=False)  # may see clinical (restricted) sample fields
     created_at = Column(DateTime, default=datetime.utcnow)
     last_login = Column(DateTime, nullable=True)
 

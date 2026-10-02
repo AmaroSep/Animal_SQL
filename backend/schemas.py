@@ -1,6 +1,6 @@
 from pydantic import BaseModel
 from datetime import date, datetime
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 import models
 from models import AnimalStatus, AnimalSex, ColonyResponsibleRole, EMGridStatus
 
@@ -414,9 +414,34 @@ class M80BoxUpdate(BaseModel):
     restriction: Optional[str] = None
     notes: Optional[str] = None
 
+class M80Field(BaseModel):
+    key: str
+    label: str
+    type: str = "text"                 # text | number | date | choice | animal | formula
+    options: Optional[List[str]] = None
+    unit: Optional[str] = None
+    formula: Optional[str] = None      # "a / b" with other field keys
+    restricted: bool = False
+
+class M80SampleTypeIn(BaseModel):
+    name: str
+    color: Optional[str] = None
+    description: Optional[str] = None
+    fields: List[M80Field] = []
+
+class M80SampleTypeOut(M80SampleTypeIn):
+    id: int
+    tubes: int = 0
+
+    class Config:
+        from_attributes = True
+
 class M80TubeData(BaseModel):
     sample_name: str
     sample_type: Optional[str] = None
+    sample_type_id: Optional[int] = None
+    data: Optional[Dict[str, Any]] = None
+    aliquot_number: Optional[int] = None
     source: Optional[str] = None
     concentration: Optional[str] = None
     volume: Optional[str] = None
@@ -425,16 +450,31 @@ class M80TubeData(BaseModel):
     comment: Optional[str] = None
     reserved: bool = False
 
+class M80TubeItem(BaseModel):
+    well: int
+    aliquot_number: Optional[int] = None
+    volume: Optional[str] = None
+
 class M80TubeBatchCreate(BaseModel):
     box_id: int
     wells: List[int]
     data: M80TubeData
+    items: Optional[List[M80TubeItem]] = None   # per-position aliquot # / volume
+
+class M80Import(BaseModel):
+    sample_type_id: int
+    rows: List[Dict[str, Any]]                  # one dict per Excel row, keyed by header
+    box_rows: Optional[int] = None              # size for boxes the import has to create
+    box_columns: Optional[int] = None
 
 class M80TubeUpdate(BaseModel):
     box_id: Optional[int] = None
     well: Optional[int] = None
     sample_name: Optional[str] = None
     sample_type: Optional[str] = None
+    sample_type_id: Optional[int] = None
+    data: Optional[Dict[str, Any]] = None
+    aliquot_number: Optional[int] = None
     source: Optional[str] = None
     concentration: Optional[str] = None
     volume: Optional[str] = None
@@ -471,6 +511,7 @@ class M80Tube(M80TubeData):
     removed_note: Optional[str] = None
     location: Optional[M80Location] = None
     box_label: Optional[str] = None
+    animal: Optional[Dict[str, Any]] = None     # Bioterio animal behind an "animal" field
     created_by: Optional[str] = None
     created_at: Optional[datetime] = None
     updated_by: Optional[str] = None
@@ -533,6 +574,7 @@ class UserOut(BaseModel):
     role: models.UserRole
     active: bool
     color: Optional[str] = None
+    restricted_access: bool = False
     last_login: Optional[datetime] = None
 
     class Config:
@@ -551,6 +593,7 @@ class UserUpdate(BaseModel):
     role: Optional[models.UserRole] = None
     active: Optional[bool] = None
     color: Optional[str] = None
+    restricted_access: Optional[bool] = None
     password: Optional[str] = None      # admin reset
 
 class ColorUpdate(BaseModel):

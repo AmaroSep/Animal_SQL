@@ -2,14 +2,19 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Home, Refrigerator, Search, ArrowLeft, Lock, Pencil, Trash2, Plus, History, RotateCcw, AlertTriangle, FileSpreadsheet, Layers, ChevronRight,
+  Upload, Tags,
 } from 'lucide-react';
 import {
   fetchM80Freezers, createM80Freezer, updateM80Freezer, deleteM80Freezer,
   createM80Compartment, updateM80Compartment, deleteM80Compartment,
   createM80Rack, updateM80Rack, deleteM80Rack,
   fetchM80Box, createM80Box, updateM80Box, deleteM80Box,
-  fetchM80Tubes, createM80Tubes, updateM80Tube, removeM80Tube, restoreM80Tube, deleteM80Tube,
+  fetchM80Tubes, createM80Tubes, updateM80Tube, removeM80Tube, restoreM80Tube, deleteM80Tube, fetchM80SampleTypes,
 } from '../../services/api';
+import { useAuth } from '../../auth/AuthContext';
+import {
+  TypeFieldsInput, SampleTypesPanel, M80ImportPanel, AnimalInfo, typeStyle, typeColor, visibleFields, formatValue,
+} from './sampleTypes';
 import { today, has, fmt, colorFor, compressWells, labelCls, Field, Modal as BaseModal } from '../storage/shared';
 import { exportM80Inventory, shortLocation } from './exportInventory';
 import RecordStamp from '../../components/RecordStamp';
@@ -22,8 +27,6 @@ const btnGhost = 'flex items-center gap-2 px-5 py-3 rounded-xl text-xs font-blac
 const btnSmall = 'flex items-center gap-1 px-3 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest bg-white/5 hover:bg-white/10 text-white/60';
 const btnDanger = 'flex items-center gap-2 px-4 py-3 rounded-xl text-xs font-black uppercase tracking-widest text-red-400 hover:bg-red-500/10';
 
-const SAMPLE_TYPES = ['Protein lysate', 'Brain homogenate', 'Tissue', 'Cell pellet', 'Supernatant', 'Serum', 'Plasma', 'CSF',
-  'DNA', 'RNA', 'cDNA', 'Plasmid', 'Antibody', 'Recombinant protein', 'Buffer / reagent'];
 // Any layout is allowed (rows A–Z × up to 30 columns); these are just shortcuts
 const BOX_PRESETS = [[9, 9], [10, 10], [6, 10], [8, 12], [5, 5], [2, 2]];
 const MAX_ROWS = 26;
@@ -400,15 +403,15 @@ function RackView({ freezer, rackId, onOpenBox, onOpenRack, onBack, onChanged })
 
 // ── Tube forms ─────────────────────────────────────────────────────────────
 
-const emptyTube = () => ({
-  sample_name: '', sample_type: '', source: '', concentration: '', volume: '', frozen_date: today(), frozen_by: '', comment: '', reserved: false,
+const emptyTube = (typeId = '') => ({
+  sample_name: '', sample_type_id: typeId, data: {}, aliquot_number: '', volume: '', frozen_date: today(), frozen_by: '', comment: '', reserved: false,
 });
 
 const toPayload = (f) => ({
   sample_name: f.sample_name.trim(),
-  sample_type: f.sample_type || null,
-  source: f.source || null,
-  concentration: f.concentration || null,
+  sample_type_id: f.sample_type_id ? Number(f.sample_type_id) : null,
+  data: f.data || {},
+  aliquot_number: f.aliquot_number === '' || f.aliquot_number === null ? null : Number(f.aliquot_number),
   volume: f.volume || null,
   frozen_date: f.frozen_date || null,
   frozen_by: f.frozen_by ? f.frozen_by.trim().toUpperCase() : null,
@@ -416,54 +419,93 @@ const toPayload = (f) => ({
   reserved: !!f.reserved,
 });
 
-function TubeFields({ form, setForm, suggestions }) {
+// Common tube data, then the fields of the chosen sample type
+function TubeFields({ form, setForm, suggestions, types, canSee, perAliquot = false }) {
   const set = (k) => (e) => setForm({ ...form, [k]: e.target.type === 'checkbox' ? e.target.checked : e.target.value });
+  const type = types.find((t) => t.id === Number(form.sample_type_id));
   return (
-    <div className="grid grid-cols-2 gap-4">
-      <Field label="Sample *" className="col-span-2">
-        <input required className={inputCls} value={form.sample_name} onChange={set('sample_name')} list="m80-samples" placeholder="PS19 cortex lysate" />
-      </Field>
-      <Field label="Type"><input className={inputCls} value={form.sample_type} onChange={set('sample_type')} list="m80-types" /></Field>
-      <Field label="Source (animal, subject, cell line)"><input className={inputCls} value={form.source} onChange={set('source')} placeholder="Mouse #123" /></Field>
-      <Field label="Concentration"><input className={inputCls} value={form.concentration} onChange={set('concentration')} placeholder="2 mg/mL" /></Field>
-      <Field label="Volume"><input className={inputCls} value={form.volume} onChange={set('volume')} placeholder="50 µL" /></Field>
-      <Field label="Frozen date"><input type="date" className={inputCls} value={form.frozen_date} onChange={set('frozen_date')} /></Field>
-      <Field label="Frozen by (initials)"><input className={inputCls} value={form.frozen_by} onChange={set('frozen_by')} maxLength={6} /></Field>
-      <Field label="Comment" className="col-span-2"><textarea rows={2} className={inputCls} value={form.comment} onChange={set('comment')} /></Field>
-      <label className="col-span-2 flex items-center gap-3 text-sm text-white/80 cursor-pointer">
-        <input type="checkbox" checked={!!form.reserved} onChange={set('reserved')} className="w-4 h-4 accent-amber-400" />
-        <Lock size={14} className="text-amber-300" /> Reserved — do not use without asking
-      </label>
-      <datalist id="m80-samples">{suggestions.samples.map((s) => <option key={s} value={s} />)}</datalist>
-      <datalist id="m80-types">{suggestions.types.map((s) => <option key={s} value={s} />)}</datalist>
+    <div className="space-y-4">
+      <div className="grid grid-cols-2 gap-4">
+        <Field label="Sample type">
+          <select className={inputCls} value={form.sample_type_id || ''} onChange={(e) => setForm({ ...form, sample_type_id: e.target.value })}>
+            <option value="" className="bg-slate-900">— none —</option>
+            {types.map((t) => <option key={t.id} value={t.id} className="bg-slate-900">{t.name}</option>)}
+          </select>
+        </Field>
+        <Field label="Name on tube *">
+          <input required className={inputCls} value={form.sample_name} onChange={set('sample_name')} list="m80-samples" placeholder={type?.name === 'CSF' ? 'V00011.BL' : 'PS19 cortex lysate'} />
+        </Field>
+        {!perAliquot && <Field label="Aliquot #"><input type="number" min="1" className={inputCls} value={form.aliquot_number ?? ''} onChange={set('aliquot_number')} /></Field>}
+        <Field label={perAliquot ? 'Volume (default for all aliquots)' : 'Volume'}><input className={inputCls} value={form.volume} onChange={set('volume')} placeholder="50 µL" /></Field>
+        <Field label="Date received / frozen"><input type="date" className={inputCls} value={form.frozen_date} onChange={set('frozen_date')} /></Field>
+        <Field label="Frozen by (initials)"><input className={inputCls} value={form.frozen_by} onChange={set('frozen_by')} maxLength={6} /></Field>
+      </div>
+      <TypeFieldsInput type={type} data={form.data || {}} setData={(data) => setForm({ ...form, data })} canSee={canSee} />
+      <div className="grid grid-cols-2 gap-4 border-t border-white/10 pt-4">
+        <Field label="Notes" className="col-span-2"><textarea rows={2} className={inputCls} value={form.comment} onChange={set('comment')} /></Field>
+        <label className="col-span-2 flex items-center gap-3 text-sm text-white/80 cursor-pointer">
+          <input type="checkbox" checked={!!form.reserved} onChange={set('reserved')} className="w-4 h-4 accent-amber-400" />
+          <Lock size={14} className="text-amber-300" /> Reserved — do not use without asking
+        </label>
+      </div>
+      <datalist id="m80-samples">{suggestions.samples.map((x) => <option key={x} value={x} />)}</datalist>
     </div>
   );
 }
 
-function AddTubesModal({ box, wells, suggestions, onClose, onSaved }) {
-  const [form, setForm] = useState(emptyTube);
+function AddTubesModal({ box, wells, suggestions, types, canSee, onClose, onSaved }) {
+  const sorted = [...wells].sort((a, b) => a - b);
+  const [form, setForm] = useState(() => emptyTube(types.find((t) => t.name === 'General')?.id || ''));
+  // One aliquot per selected position: number 1..N and its own volume (empty = the default)
+  const [items, setItems] = useState(() => sorted.map((w, i) => ({ well: w, aliquot_number: i + 1, volume: '' })));
   const [error, run] = useAction(onSaved);
+  const many = sorted.length > 1;
+  const setItem = (i, patch) => setItems(items.map((it, j) => (j === i ? { ...it, ...patch } : it)));
+  const submit = (e) => {
+    e.preventDefault();
+    const data = toPayload(form);
+    run(() => createM80Tubes({
+      box_id: box.id, wells: sorted, data,
+      items: many ? items.map((it) => ({ well: it.well, aliquot_number: it.aliquot_number === '' ? null : Number(it.aliquot_number), volume: it.volume || data.volume })) : null,
+    }));
+  };
   return (
-    <Modal wide title={`Store ${wells.length} tube${wells.length === 1 ? '' : 's'}`} subtitle={`${fullLocation(box.location)} · positions ${compressWells(wells)}`} onClose={onClose}>
-      <form onSubmit={(e) => { e.preventDefault(); run(() => createM80Tubes({ box_id: box.id, wells, data: toPayload(form) })); }} className="space-y-5">
+    <Modal wide title={`Store ${sorted.length} tube${many ? 's' : ''}`} subtitle={`${fullLocation(box.location)} · positions ${compressWells(sorted)}`} onClose={onClose}>
+      <form onSubmit={submit} className="space-y-5">
         {box.restriction && (
           <p className="flex gap-2 text-xs text-amber-200 bg-amber-500/10 border border-amber-400/30 rounded-xl p-3"><AlertTriangle size={14} className="shrink-0 mt-0.5" /> {box.restriction}</p>
         )}
-        <TubeFields form={form} setForm={setForm} suggestions={suggestions} />
+        <TubeFields form={form} setForm={setForm} suggestions={suggestions} types={types} canSee={canSee} perAliquot={many} />
+        {many && (
+          <div className="border-t border-white/10 pt-4">
+            <span className={labelCls}>Aliquots — same sample data, one per position</span>
+            <div className="grid grid-cols-[4rem_7rem_1fr] gap-2 items-center text-xs">
+              <span className="text-white/30 font-mono">Pos.</span><span className="text-white/30 font-mono">Aliquot #</span><span className="text-white/30 font-mono">Volume</span>
+              {items.map((it, i) => (
+                <React.Fragment key={it.well}>
+                  <span className="font-mono text-white/60">#{it.well}</span>
+                  <input type="number" min="1" className={`${inputCls} py-2`} value={it.aliquot_number} onChange={(e) => setItem(i, { aliquot_number: e.target.value })} />
+                  <input className={`${inputCls} py-2`} value={it.volume} placeholder={form.volume || 'default'} onChange={(e) => setItem(i, { volume: e.target.value })} />
+                </React.Fragment>
+              ))}
+            </div>
+          </div>
+        )}
         <ErrorLine error={error} />
         <div className="flex justify-end gap-3">
           <button type="button" onClick={onClose} className={btnGhost}>Cancel</button>
-          <button type="submit" className={btnPrimary}>Save {wells.length} tube{wells.length === 1 ? '' : 's'}</button>
+          <button type="submit" className={btnPrimary}>Save {sorted.length} tube{many ? 's' : ''}</button>
         </div>
       </form>
     </Modal>
   );
 }
 
-function TubeModal({ tube, box, freezers, suggestions, onClose, onSaved }) {
+function TubeModal({ tube, box, freezers, suggestions, types, canSee, onClose, onSaved }) {
   const [mode, setMode] = useState('view'); // view | edit | remove
   const blank = (o) => Object.fromEntries(Object.entries(o).map(([k, v]) => [k, v ?? '']));
-  const [form, setForm] = useState(() => blank(tube));
+  const [form, setForm] = useState(() => ({ ...blank(tube), data: tube.data || {}, sample_type_id: tube.sample_type_id || '' }));
+  const type = types.find((t) => t.id === tube.sample_type_id);
   const [removal, setRemoval] = useState({ status: 'Used', removed_date: today(), removed_by: '', removed_note: '' });
   const [error, run] = useAction(onSaved);
   const inFreezer = tube.status === 'In freezer';
@@ -500,7 +542,7 @@ function TubeModal({ tube, box, freezers, suggestions, onClose, onSaved }) {
               <input type="number" min="1" max={target ? target.capacity : 100} required className={inputCls} value={form.well} onChange={(e) => setForm({ ...form, well: e.target.value })} />
             </Field>
           </div>
-          <TubeFields form={form} setForm={setForm} suggestions={suggestions} />
+          <TubeFields form={form} setForm={setForm} suggestions={suggestions} types={types} canSee={canSee} />
           {!inFreezer && (
             <div className="grid grid-cols-2 gap-4">
               <Field label={`${tube.status} on`}><input type="date" className={inputCls} value={form.removed_date} onChange={(e) => setForm({ ...form, removed_date: e.target.value })} /></Field>
@@ -515,7 +557,7 @@ function TubeModal({ tube, box, freezers, suggestions, onClose, onSaved }) {
               <Trash2 size={14} /> Delete record
             </button>
             <div className="flex gap-3">
-              <button type="button" onClick={() => { setForm(blank(tube)); setMode('view'); }} className={btnGhost}>Cancel</button>
+              <button type="button" onClick={() => { setForm({ ...blank(tube), data: tube.data || {}, sample_type_id: tube.sample_type_id || '' }); setMode('view'); }} className={btnGhost}>Cancel</button>
               <button type="submit" className={btnPrimary}>Save</button>
             </div>
           </div>
@@ -553,11 +595,15 @@ function TubeModal({ tube, box, freezers, suggestions, onClose, onSaved }) {
   const rows = [
     ['Location', where],
     ['Type', fmt(tube.sample_type)],
-    ['Source', fmt(tube.source)],
-    ['Concentration', fmt(tube.concentration)],
+    ['Aliquot #', fmt(tube.aliquot_number)],
     ['Volume', fmt(tube.volume)],
-    ['Frozen', tube.frozen_date ? `${tube.frozen_date}${tube.frozen_by ? ` · ${tube.frozen_by}` : ''}` : fmt(tube.frozen_by)],
+    ['Received / frozen', tube.frozen_date ? `${tube.frozen_date}${tube.frozen_by ? ` · ${tube.frozen_by}` : ''}` : fmt(tube.frozen_by)],
+    // Older tubes recorded these without a sample type
+    ...(has(tube.source) ? [['Source', tube.source]] : []),
+    ...(has(tube.concentration) ? [['Concentration', tube.concentration]] : []),
   ];
+  const typeRows = visibleFields(type, canSee).filter((f) => f.type !== 'animal');
+  const hiddenCount = (type?.fields || []).length - visibleFields(type, canSee).length;
   return (
     <Modal wide title={tube.sample_name} subtitle={`#${tube.well}`} onClose={onClose}>
       <div className="space-y-5">
@@ -573,7 +619,25 @@ function TubeModal({ tube, box, freezers, suggestions, onClose, onSaved }) {
             </div>
           ))}
         </dl>
-        {tube.comment && (<div><span className={labelCls}>Comment</span><p className="text-sm text-white/70 whitespace-pre-wrap">{tube.comment}</p></div>)}
+        {type && (
+          <div className="space-y-2">
+            <span className={labelCls} style={{ color: typeColor(type) }}>{type.name} information</span>
+            <AnimalInfo animal={tube.animal} collectionDate={tube.data?.collection_date} />
+            {type.fields.some((f) => f.type === 'animal' && has(tube.data?.[f.key])) && !tube.animal && (
+              <p className="text-xs text-amber-200/80">Animal {type.fields.filter((f) => f.type === 'animal').map((f) => tube.data?.[f.key]).filter(Boolean).join(', ')} is not in Bioterio.</p>
+            )}
+            <dl className="grid grid-cols-3 gap-2">
+              {typeRows.map((f) => (
+                <div key={f.key} className="bg-white/5 border border-white/5 rounded-lg px-3 py-2">
+                  <dt className="text-[9px] font-black uppercase tracking-widest text-white/40">{f.label}{f.restricted && <Lock size={9} className="inline ml-1 text-amber-300" />}</dt>
+                  <dd className="text-sm font-mono text-white/90 break-words">{formatValue(f, tube.data?.[f.key])}</dd>
+                </div>
+              ))}
+            </dl>
+            {hiddenCount > 0 && <p className="text-[11px] text-white/40 flex items-center gap-1"><Lock size={11} /> {hiddenCount} restricted field{hiddenCount === 1 ? '' : 's'} hidden.</p>}
+          </div>
+        )}
+        {tube.comment && (<div><span className={labelCls}>Notes</span><p className="text-sm text-white/70 whitespace-pre-wrap">{tube.comment}</p></div>)}
         {!inFreezer && (
           <div className="bg-white/5 border border-white/10 rounded-xl p-4 text-sm">
             <span className={labelCls}>{tube.status}</span>
@@ -662,7 +726,7 @@ function BoxEditModal({ box, freezers, onClose, onSaved }) {
 
 // ── Box view: tube grid ────────────────────────────────────────────────────
 
-function BoxView({ boxId, freezers, suggestions, onBack, onFreezer, onChanged }) {
+function BoxView({ boxId, freezers, suggestions, types, canSee, onBack, onFreezer, onChanged }) {
   const [box, setBox] = useState(null);
   const [selected, setSelected] = useState([]);
   const [modal, setModal] = useState(null); // 'add' | 'edit' | tube
@@ -682,7 +746,9 @@ function BoxView({ boxId, freezers, suggestions, onBack, onFreezer, onChanged })
   const byWell = {};
   box.tubes.filter((t) => t.status === 'In freezer').forEach((t) => { byWell[t.well] = t; });
   const history = box.tubes.filter((t) => t.status !== 'In freezer').sort((a, b) => (b.removed_date || '').localeCompare(a.removed_date || ''));
+  const typeOf = (t) => types.find((x) => x.id === t.sample_type_id);
   const legend = Object.entries(Object.values(byWell).reduce((acc, t) => ({ ...acc, [t.sample_name]: (acc[t.sample_name] || 0) + 1 }), {})).sort((a, b) => b[1] - a[1]);
+  const typeLegend = Object.entries(Object.values(byWell).reduce((acc, t) => (t.sample_type_id ? { ...acc, [t.sample_type_id]: (acc[t.sample_type_id] || 0) + 1 } : acc), {}));
   const free = box.capacity - Object.keys(byWell).length;
   const toggle = (w) => setSelected((s) => (s.includes(w) ? s.filter((x) => x !== w) : [...s, w]));
   const nextFree = (n) => {
@@ -736,11 +802,12 @@ function BoxView({ boxId, freezers, suggestions, onBack, onFreezer, onChanged })
               const isSel = selected.includes(w);
               return (
                 <button key={w} onClick={() => (t ? setModal(t) : toggle(w))}
-                  title={t ? `#${w} · ${t.sample_name}${t.sample_type ? ` · ${t.sample_type}` : ''}${t.reserved ? ' · RESERVED' : ''}` : `#${w} · empty`}
+                  title={t ? `#${w} · ${t.sample_name}${t.aliquot_number ? ` · aliquot ${t.aliquot_number}` : ''}${t.sample_type ? ` · ${t.sample_type}` : ''}${t.volume ? ` · ${t.volume}` : ''}${t.reserved ? ' · RESERVED' : ''}` : `#${w} · empty`}
+                  style={t && typeOf(t) ? typeStyle(typeOf(t)) : undefined}
                   className={`relative h-[4.25rem] rounded-lg border p-1.5 text-left transition-all hover:scale-105 ${
-                    t ? colorFor(t.sample_name) : isSel ? 'border-indigo-300 bg-indigo-400/30' : 'border-dashed border-white/10 hover:border-indigo-400/60'
+                    t ? (typeOf(t) ? '' : colorFor(t.sample_name)) : isSel ? 'border-indigo-300 bg-indigo-400/30' : 'border-dashed border-white/10 hover:border-indigo-400/60'
                   }`}>
-                  <div className="text-[9px] font-mono font-bold text-white/60">{w}</div>
+                  <div className="text-[9px] font-mono font-bold text-white/60">{w}{t?.aliquot_number ? <span className="text-white/40"> · a{t.aliquot_number}</span> : ''}</div>
                   {t && <div className="text-[10px] font-black leading-tight text-white line-clamp-3 break-words">{t.sample_name}</div>}
                   {t?.reserved && <Lock size={10} className="absolute top-1.5 right-1.5 text-amber-200" />}
                 </button>
@@ -748,9 +815,17 @@ function BoxView({ boxId, freezers, suggestions, onBack, onFreezer, onChanged })
             })}
           </div>
         </div>
+        {typeLegend.length > 0 && (
+          <div className="flex flex-wrap gap-2">
+            {typeLegend.map(([id, n]) => {
+              const t = types.find((x) => x.id === Number(id));
+              return <span key={id} style={typeStyle(t)} className="px-2 py-1 rounded-md border text-[11px] font-black">{t?.name} · {n}</span>;
+            })}
+          </div>
+        )}
         {legend.length > 0 && (
           <div className="flex flex-wrap gap-2">
-            {legend.map(([name, n]) => <span key={name} className={`px-2 py-1 rounded-md border text-[11px] font-mono ${colorFor(name)}`}>{name} · {n}</span>)}
+            {legend.map(([name, n]) => <span key={name} className="px-2 py-1 rounded-md border border-white/10 bg-white/5 text-[11px] font-mono">{name} · {n}</span>)}
           </div>
         )}
       </div>
@@ -771,20 +846,54 @@ function BoxView({ boxId, freezers, suggestions, onBack, onFreezer, onChanged })
         </div>
       )}
 
-      {modal === 'add' && <AddTubesModal box={box} wells={selected} suggestions={suggestions} onClose={() => setModal(null)} onSaved={done} />}
+      {modal === 'add' && <AddTubesModal box={box} wells={selected} suggestions={suggestions} types={types} canSee={canSee} onClose={() => setModal(null)} onSaved={done} />}
       {modal === 'edit' && <BoxEditModal box={box} freezers={freezers} onClose={() => setModal(null)} onSaved={() => { setModal(null); onChanged(); load(); }} />}
-      {modal && typeof modal === 'object' && <TubeModal tube={modal} box={box} freezers={freezers} suggestions={suggestions} onClose={() => setModal(null)} onSaved={done} />}
+      {modal && typeof modal === 'object' && <TubeModal tube={modal} box={box} freezers={freezers} suggestions={suggestions} types={types} canSee={canSee} onClose={() => setModal(null)} onSaved={done} />}
     </section>
   );
 }
 
 // ── Sample search ──────────────────────────────────────────────────────────
 
-function SearchView({ tubes, onOpenBox }) {
+// With a sample type chosen: one row per tube with that type's own columns
+function TypeTable({ type, tubes, canSee, onOpenBox }) {
+  const fields = visibleFields(type, canSee);
+  const th = 'px-2 py-2 text-left text-[9px] font-black uppercase tracking-widest text-white/40 whitespace-nowrap';
+  const td = 'px-2 py-1.5 whitespace-nowrap';
+  return (
+    <div className="overflow-x-auto">
+      <table className="text-xs font-mono">
+        <thead><tr className="border-b border-white/10">
+          <th className={th}>Name on tube</th><th className={th}>Aliq.</th><th className={th}>Volume</th>
+          {fields.map((f) => <th key={f.key} className={th}>{f.label}{f.restricted && <Lock size={9} className="inline ml-1 text-amber-300" />}</th>)}
+          <th className={th}>Genotype</th><th className={th}>Location</th>
+        </tr></thead>
+        <tbody>
+          {tubes.map((t) => (
+            <tr key={t.id} onClick={() => onOpenBox(t.box_id)} className="border-b border-white/5 hover:bg-white/5 cursor-pointer">
+              <td className={`${td} font-bold`}>{t.sample_name}</td><td className={td}>{fmt(t.aliquot_number)}</td><td className={td}>{fmt(t.volume)}</td>
+              {fields.map((f) => <td key={f.key} className={td}>{formatValue(f, t.data?.[f.key])}</td>)}
+              <td className={td}>{t.animal?.genotype || ''}</td>
+              <td className={`${td} text-white/50`}>{shortLocation(t.location)} · #{t.well}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {tubes.length === 0 && <p className="py-10 text-center text-white/30 font-mono text-xs uppercase tracking-widest">No tubes match</p>}
+    </div>
+  );
+}
+
+function SearchView({ tubes, types, canSee, onOpenBox }) {
   const [q, setQ] = useState('');
+  const [typeId, setTypeId] = useState('');
   const [showRemoved, setShowRemoved] = useState(false);
   const query = q.trim().toLowerCase();
-  const matches = (t) => !query || [t.sample_name, t.sample_type, t.source, t.comment, t.frozen_by, t.box_label].some((x) => x && x.toLowerCase().includes(query));
+  const type = types.find((t) => t.id === Number(typeId));
+  // Every word must appear somewhere: name, notes, box, or the type's field values ("CSF BL 24MO", "Female")
+  const matches = (t) => (!type || t.sample_type_id === type.id) && (!query || query.split(/\s+/).every((w) =>
+    [t.sample_name, t.sample_type, t.source, t.comment, t.frozen_by, t.box_label, t.animal?.genotype, ...Object.values(t.data || {}).map(String)]
+      .some((x) => x && x.toLowerCase().includes(w))));
 
   const groups = useMemo(() => {
     const bySample = {};
@@ -796,22 +905,30 @@ function SearchView({ tubes, onOpenBox }) {
       (g.boxes[t.box_id] ??= { loc: shortLocation(t.location), wells: [] }).wells.push(t.well);
     });
     return Object.values(bySample).sort((a, b) => a.name.localeCompare(b.name));
-  }, [tubes, query]);
+  }, [tubes, query, typeId]);
   const removed = useMemo(() => tubes.filter((t) => t.status !== 'In freezer' && matches(t))
-    .sort((a, b) => (b.removed_date || '').localeCompare(a.removed_date || '')), [tubes, query]);
+    .sort((a, b) => (b.removed_date || '').localeCompare(a.removed_date || '')), [tubes, query, typeId]);
 
   return (
     <section className="glass rounded-3xl p-6 space-y-4">
       <div className="flex flex-wrap items-center gap-3">
         <div className="relative flex-1 min-w-[240px]">
           <Search size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-white/30" />
-          <input autoFocus className={`${inputCls} pl-11`} placeholder="Search sample, type, source, comment, box..." value={q} onChange={(e) => setQ(e.target.value)} />
+          <input autoFocus className={`${inputCls} pl-11`} placeholder="Search name, notes, box or any field value (e.g. V00011, 24MO, Female)..." value={q} onChange={(e) => setQ(e.target.value)} />
         </div>
+        <select className={`${inputCls} w-48`} value={typeId} onChange={(e) => setTypeId(e.target.value)}>
+          <option value="" className="bg-slate-900">All sample types</option>
+          {types.map((t) => <option key={t.id} value={t.id} className="bg-slate-900">{t.name}</option>)}
+        </select>
         <label className="flex items-center gap-2 text-xs text-white/60 cursor-pointer">
           <input type="checkbox" checked={showRemoved} onChange={(e) => setShowRemoved(e.target.checked)} className="accent-indigo-400" /> Show used / discarded
         </label>
       </div>
       <p className="text-xs font-mono text-white/40">{groups.length} sample{groups.length === 1 ? '' : 's'} · {groups.reduce((a, g) => a + g.count, 0)} tubes in the freezers</p>
+      {type ? (
+        <TypeTable type={type} canSee={canSee} onOpenBox={onOpenBox}
+          tubes={tubes.filter((t) => t.status === 'In freezer' && matches(t)).sort((a, b) => a.sample_name.localeCompare(b.sample_name) || (a.aliquot_number || 0) - (b.aliquot_number || 0))} />
+      ) : (
       <div className="divide-y divide-white/5">
         {groups.map((g) => (
           <div key={g.name} className="flex flex-wrap items-center gap-x-6 gap-y-2 py-3">
@@ -833,6 +950,7 @@ function SearchView({ tubes, onOpenBox }) {
         ))}
         {groups.length === 0 && <p className="py-10 text-center text-white/30 font-mono text-xs uppercase tracking-widest">No tubes match</p>}
       </div>
+      )}
       {showRemoved && (
         <div className="pt-4">
           <h3 className={labelCls}><History size={12} className="inline mr-1" /> Used / discarded ({removed.length})</h3>
@@ -862,12 +980,17 @@ export default function M80App() {
   const [boxId, setBoxId] = useState(null);
   const [view, setView] = useState('freezer'); // freezer | search
   const [creating, setCreating] = useState(false);
+  const [types, setTypes] = useState([]);
+  const [panel, setPanel] = useState(null); // 'types' | 'import'
+  const { user, isAdmin, canEdit } = useAuth();
+  const canSee = isAdmin || !!user?.restricted_access;
 
   const load = async () => {
     try {
-      const [f, t] = await Promise.all([fetchM80Freezers(), fetchM80Tubes()]);
+      const [f, t, st] = await Promise.all([fetchM80Freezers(), fetchM80Tubes(), fetchM80SampleTypes()]);
       setFreezers(f);
       setTubes(t);
+      setTypes(st);
       setFreezerId((id) => (f.some((x) => x.id === id) ? id : f[0]?.id ?? null));
     } catch (err) {
       console.error('Error loading freezers:', err);
@@ -877,7 +1000,7 @@ export default function M80App() {
 
   const suggestions = useMemo(() => {
     const uniq = (arr) => [...new Set(arr.filter(Boolean).map((s) => s.trim()))].sort();
-    return { samples: uniq(tubes.map((t) => t.sample_name)), types: uniq([...SAMPLE_TYPES, ...tubes.map((t) => t.sample_type)]) };
+    return { samples: uniq(tubes.map((t) => t.sample_name)) };
   }, [tubes]);
 
   const freezer = freezers.find((f) => f.id === freezerId);
@@ -914,13 +1037,15 @@ export default function M80App() {
           <button onClick={() => navigate('/')} className="flex items-center gap-2 px-4 py-3 bg-white/5 text-white/30 hover:text-white hover:bg-white/10 rounded-xl text-xs font-black uppercase tracking-widest transition-all"><Home size={16} /> Home</button>
           <button onClick={() => { setView('freezer'); setRackId(null); setBoxId(null); }} className={tabCls(view === 'freezer')}><Refrigerator size={16} /> Freezers</button>
           <button onClick={() => setView('search')} className={tabCls(view === 'search')}><Search size={16} /> Find samples</button>
-          <button onClick={() => exportM80Inventory(freezers, tubes)} disabled={!freezers.length} className={`${tabCls(false)} disabled:opacity-30`}><FileSpreadsheet size={16} /> Export all</button>
+          <button onClick={() => exportM80Inventory(freezers, tubes, null, types, canSee)} disabled={!freezers.length} className={`${tabCls(false)} disabled:opacity-30`}><FileSpreadsheet size={16} /> Export all</button>
+          {canEdit && <button onClick={() => setPanel('import')} className={tabCls(false)}><Upload size={16} /> Import Excel</button>}
+          {isAdmin && <button onClick={() => setPanel('types')} className={tabCls(false)}><Tags size={16} /> Sample types</button>}
         </div>
       </header>
 
       <main className="flex-1 max-w-screen-2xl mx-auto w-full p-4 space-y-6">
         {view === 'search' ? (
-          <SearchView tubes={tubes} onOpenBox={openBox} />
+          <SearchView tubes={tubes} types={types} canSee={canSee} onOpenBox={openBox} />
         ) : (
           <>
             <div className="flex flex-wrap gap-3">
@@ -946,16 +1071,26 @@ export default function M80App() {
                 <p className="text-xs font-mono text-white/30">Create a freezer, then add racks to each compartment (levels × boxes per level) and boxes in the empty slots.</p>
               </div>
             ) : boxId ? (
-              <BoxView boxId={boxId} freezers={freezers} suggestions={suggestions} onBack={() => setBoxId(null)} onFreezer={() => { setBoxId(null); setRackId(null); }} onChanged={load} />
+              <BoxView boxId={boxId} freezers={freezers} suggestions={suggestions} types={types} canSee={canSee} onBack={() => setBoxId(null)} onFreezer={() => { setBoxId(null); setRackId(null); }} onChanged={load} />
             ) : freezer && rackId && rackExists ? (
               <RackView freezer={freezer} rackId={rackId} onOpenBox={setBoxId} onOpenRack={setRackId} onBack={() => setRackId(null)} onChanged={load} />
             ) : freezer ? (
-              <FreezerView freezer={freezer} onOpenRack={setRackId} onChanged={load} onExport={() => exportM80Inventory(freezers, tubes, freezer.id)} />
+              <FreezerView freezer={freezer} onOpenRack={setRackId} onChanged={load} onExport={() => exportM80Inventory(freezers, tubes, freezer.id, types, canSee)} />
             ) : null}
           </>
         )}
       </main>
 
+      {panel === 'types' && (
+        <Modal wide title="Sample types" subtitle="Each type has its own fields; 🔒 = restricted clinical data" onClose={() => setPanel(null)}>
+          <SampleTypesPanel types={types} onChanged={load} />
+        </Modal>
+      )}
+      {panel === 'import' && (
+        <Modal wide title="Import tubes from Excel" subtitle="One sample type per file" onClose={() => setPanel(null)}>
+          <M80ImportPanel types={types} onImported={load} />
+        </Modal>
+      )}
       {creating && <FreezerModal onClose={() => setCreating(false)} onSaved={(f) => { setCreating(false); if (f?.id) selectFreezer(f.id); load(); }} />}
     </div>
   );

@@ -16,6 +16,7 @@ function UserModal({ user, onClose, onSaved }) {
   const [form, setForm] = useState({
     username: user?.username || '', full_name: user?.full_name || '', initials: user?.initials || '',
     role: user?.role || 'editor', active: user?.active ?? true, password: '',
+    restricted_access: user?.restricted_access ?? false,
   });
   const [error, setError] = useState(null);
   const set = (k) => (e) => setForm({ ...form, [k]: e.target.type === 'checkbox' ? e.target.checked : e.target.value });
@@ -23,7 +24,7 @@ function UserModal({ user, onClose, onSaved }) {
     e.preventDefault();
     try {
       if (user) {
-        const data = { full_name: form.full_name, initials: form.initials, role: form.role, active: form.active };
+        const data = { full_name: form.full_name, initials: form.initials, role: form.role, active: form.active, restricted_access: form.restricted_access };
         if (form.password) data.password = form.password;
         await updateUser(user.id, data);
       } else {
@@ -59,6 +60,10 @@ function UserModal({ user, onClose, onSaved }) {
               <input type="checkbox" checked={form.active} onChange={set('active')} className="accent-cyan-400" /> Active (can sign in)
             </label>
           )}
+          <label className="col-span-2 flex items-start gap-2 text-sm text-white/80">
+            <input type="checkbox" checked={form.restricted_access} onChange={set('restricted_access')} className="accent-cyan-400 mt-1" />
+            <span>Can see restricted sample data <span className="block text-[11px] text-white/40">Clinical fields of -80 samples (diagnosis, age, sex, race, biomarkers). Admins always can.</span></span>
+          </label>
         </div>
         {error && <p className="text-red-400 text-sm font-mono">{error}</p>}
         <div className="flex justify-end gap-3">
@@ -101,7 +106,7 @@ export default function UsersPage() {
         <section className="glass rounded-3xl p-6 overflow-x-auto">
           <table className="w-full text-sm">
             <thead><tr className="text-left text-[10px] font-black uppercase tracking-widest text-white/40 border-b border-white/10">
-              {['', 'Username', 'Name', 'Initials', 'Role', 'Status', 'Last sign-in'].map((h) => <th key={h} className="py-3 pr-4">{h}</th>)}
+              {['', 'Username', 'Name', 'Initials', 'Role', 'Status', 'Restricted data', 'Last sign-in'].map((h) => <th key={h} className="py-3 pr-4">{h}</th>)}
             </tr></thead>
             <tbody>
               {users.map((u) => (
@@ -112,6 +117,7 @@ export default function UsersPage() {
                   <td className="py-3 pr-4 font-mono">{u.initials || '—'}</td>
                   <td className="py-3 pr-4 uppercase text-xs font-black">{u.role}</td>
                   <td className="py-3 pr-4">{u.active ? <span className="text-emerald-300">Active</span> : <span className="text-white/30">Disabled</span>}</td>
+                  <td className="py-3 pr-4 text-xs">{u.role === 'admin' || u.restricted_access ? <span className="text-amber-200">Yes</span> : <span className="text-white/30">No</span>}</td>
                   <td className="py-3 pr-4 font-mono text-xs text-white/50">{u.last_login ? u.last_login.replace('T', ' ').slice(0, 16) + ' UTC' : '—'}</td>
                 </tr>
               ))}

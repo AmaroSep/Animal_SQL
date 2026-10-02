@@ -144,6 +144,11 @@ export const fetchM80Box = (id) => request(`/m80/boxes/${id}`);
 export const createM80Box = (data) => request('/m80/boxes', json('POST', data));
 export const updateM80Box = (id, data) => request(`/m80/boxes/${id}`, json('PUT', data));
 export const deleteM80Box = (id) => request(`/m80/boxes/${id}`, { method: 'DELETE' });
+export const fetchM80SampleTypes = () => request('/m80/sample-types');
+export const createM80SampleType = (data) => request('/m80/sample-types', json('POST', data));
+export const updateM80SampleType = (id, data) => request(`/m80/sample-types/${id}`, json('PUT', data));
+export const deleteM80SampleType = (id) => request(`/m80/sample-types/${id}`, { method: 'DELETE' });
+export const importM80Tubes = (data, dryRun = true) => request(`/m80/import?dry_run=${dryRun}`, json('POST', data));
 export const fetchM80Tubes = ({ q, status } = {}) => {
   const params = new URLSearchParams();
   if (q) params.set('q', q);

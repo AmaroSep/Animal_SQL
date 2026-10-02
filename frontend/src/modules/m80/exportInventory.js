@@ -6,6 +6,8 @@ import { today, compressWells } from '../storage/shared';
 //  - Summary: tubes per sample and where they are
 //  - one sheet per box with the physical grid (sample name in each position)
 //  - History: used / discarded tubes
+//  - one sheet per sample type in that type's own columns (the same layout the
+//    import reads back: fields, Name on Tube, Aliquot #, ..., Location in Box)
 
 const locKey = (l) => [l.freezer, l.compartment, l.rack, l.level, l.slot];
 const cmpLoc = (a, b) => {
@@ -30,6 +32,7 @@ const tubeRow = (t) => ({
   Well: t.well,
   Sample: t.sample_name,
   Type: t.sample_type ?? '',
+  'Aliquot #': t.aliquot_number ?? '',
   Source: t.source ?? '',
   Concentration: t.concentration ?? '',
   Volume: t.volume ?? '',
@@ -47,7 +50,37 @@ const sheetName = (name, used) => {
   return base;
 };
 
-export function exportM80Inventory(freezers, tubes, freezerId = null) {
+// "50 µL" -> 50 (the lab's "Aliquot size (ul)" column); anything else as written
+const microlitres = (v) => {
+  const m = String(v ?? '').match(/^\s*([\d.]+)\s*(µl|ul|μl)?\s*$/i);
+  return m ? Number(m[1]) : v ?? '';
+};
+
+const typeRow = (t, fields, boxesById) => {
+  const row = {};
+  fields.forEach((f) => { row[f.label] = t.data?.[f.key] ?? ''; });
+  const b = boxesById[t.box_id];
+  const l = t.location;
+  return {
+    ...row,
+    Type: t.sample_type ?? '',
+    'Name on Tube': t.sample_name,
+    'Aliquot #': t.aliquot_number ?? '',
+    'Aliquot size (ul)': microlitres(t.volume),
+    'Date received': t.frozen_date ?? '',
+    'Frozen by': t.frozen_by ?? '',
+    Freezer: l.freezer,
+    Compartment: l.compartment_name ? `${l.compartment} (${l.compartment_name})` : l.compartment,
+    Rack: l.rack,
+    Level: l.level,
+    Depth: l.slot === 1 ? '1 (Front)' : l.slot,
+    'Box Name': t.box_label ?? '',
+    'Location in Box': b ? `${Math.floor((t.well - 1) / b.columns) + 1}-${((t.well - 1) % b.columns) + 1}` : t.well,
+    Notes: t.comment ?? '',
+  };
+};
+
+export function exportM80Inventory(freezers, tubes, freezerId = null, types = [], canSee = true) {
   const scope = freezerId ? freezers.filter((f) => f.id === freezerId) : freezers;
   const names = new Set(scope.map((f) => f.name));
   const mine = tubes.filter((t) => names.has(t.location.freezer));
@@ -99,6 +132,17 @@ export function exportM80Inventory(freezers, tubes, freezerId = null) {
     sheet['!cols'] = [{ wch: 3 }, ...Array.from({ length: b.columns }, () => ({ wch: 16 }))];
     addSheet(loc, sheet);
   }))));
+
+  // One sheet per sample type, in the import layout (restricted fields only for users who may see them)
+  const boxesById = {};
+  scope.forEach((f) => f.compartments.forEach((c) => c.racks.forEach((r) => r.boxes.forEach((b) => { boxesById[b.id] = b; }))));
+  types.forEach((type) => {
+    const ofType = inFreezer.filter((t) => t.sample_type_id === type.id);
+    if (!ofType.length) return;
+    const fields = type.fields.filter((f) => canSee || !f.restricted);
+    const sheet = XLSX.utils.json_to_sheet(ofType.map((t) => typeRow(t, fields, boxesById)));
+    addSheet(`${type.name} samples`, sheet);
+  });
 
   if (removed.length) {
     const hist = XLSX.utils.json_to_sheet(removed.map((t) => ({
