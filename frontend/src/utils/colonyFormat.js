@@ -96,6 +96,9 @@ export function parseColonyWorkbook(arrayBuffer) {
   return { rows, warnings };
 }
 
+// "2m 4d" -> "2m,4d" (age in months and days, as the lab writes it)
+const ageText = (a) => (a.age_display ? a.age_display.replace(' ', ',') : '');
+
 // Write animals (from GET /animals/export) in the same layout.
 export function exportColonyWorkbook(animals, title = 'Colony') {
   const byPos = (a, b) => (a.rack ?? 99) - (b.rack ?? 99) || (a.row ?? 99) - (b.row ?? 99)
@@ -116,13 +119,13 @@ export function exportColonyWorkbook(animals, title = 'Colony') {
     const first = key !== lastCage;
     lastCage = key;
     aoa.push([first ? a.position || '' : '', first ? a.cage_card || '' : '', a.animal_code || '', a.mark || '', date(a.dob),
-      a.sex || '', a.genotype || '', a.age_weeks != null ? `${a.age_weeks} w` : '', a.status, a.parent_1 || '', a.parent_2 || '',
+      a.sex || '', a.genotype || '', ageText(a), a.status, a.parent_1 || '', a.parent_2 || '',
       first ? a.responsible || '' : '', '']);
   });
   if (removed.length) {
     aoa.push([]);
     removed.forEach((a) => aoa.push(['', '', a.animal_code || '', a.mark || '', date(a.dob), a.sex || '', a.genotype || '',
-      a.age_weeks != null ? `${a.age_weeks} w` : '', a.status, a.parent_1 || '', a.parent_2 || '', a.responsible || '',
+      ageText(a), a.status, a.parent_1 || '', a.parent_2 || '', a.responsible || '',
       [a.elimination_reason, a.status_date].filter(Boolean).join(' · ')]));
   }
   const sheet = XLSX.utils.aoa_to_sheet(aoa, { cellDates: true, dateNF: 'yyyy-mm-dd' });

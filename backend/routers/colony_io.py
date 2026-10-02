@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session, joinedload
 import models, schemas
 from database import get_db
 from ownership import acting_user, is_admin
-from utils import calculate_age_months
+from utils import calculate_age_display, calculate_age_months
 
 router = APIRouter(tags=["colony exchange"])
 
@@ -55,6 +55,7 @@ def export_animals(request: Request, scope: str = "mine", db: Session = Depends(
             "status_date": a.status_changed_at.date().isoformat() if a.status_changed_at else None,
             "age_weeks": ((((a.status_changed_at.date() if a.status_changed_at and a.status != ALIVE else date.today()) - a.dob).days) // 7) if a.dob else None,
             "age_months": calculate_age_months(a.dob, a.status_changed_at, a.status) if a.dob else None,
+            "age_display": calculate_age_display(a.dob, a.status_changed_at, a.status) if a.dob else None,  # "2m 4d"
             "parent_1": a.parent_1, "parent_2": a.parent_2,
             "wean_date": a.wean_date.isoformat() if a.wean_date else None,
             "elimination_reason": a.elimination_reason, "notes": a.notes, "origin_cage": a.origin_cage,
