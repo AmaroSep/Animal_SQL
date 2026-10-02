@@ -76,6 +76,7 @@ const typeRow = (t, fields, boxesById) => {
     Depth: l.slot === 1 ? '1 (Front)' : l.slot,
     'Box Name': t.box_label ?? '',
     'Location in Box': b ? `${Math.floor((t.well - 1) / b.columns) + 1}-${((t.well - 1) % b.columns) + 1}` : t.well,
+    Status: t.status,
     Notes: t.comment ?? '',
   };
 };
@@ -137,7 +138,8 @@ export function exportM80Inventory(freezers, tubes, freezerId = null, types = []
   const boxesById = {};
   scope.forEach((f) => f.compartments.forEach((c) => c.racks.forEach((r) => r.boxes.forEach((b) => { boxesById[b.id] = b; }))));
   types.forEach((type) => {
-    const ofType = inFreezer.filter((t) => t.sample_type_id === type.id);
+    // Used / discarded aliquots too, so the sheet can be imported back as it is
+    const ofType = [...inFreezer, ...removed].filter((t) => t.sample_type_id === type.id).sort(cmpLoc);
     if (!ofType.length) return;
     const fields = type.fields.filter((f) => canSee || !f.restricted);
     const sheet = XLSX.utils.json_to_sheet(ofType.map((t) => typeRow(t, fields, boxesById)));

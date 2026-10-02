@@ -303,7 +303,7 @@ export function M80ImportPanel({ types, onImported }) {
       <p className="text-xs text-white/50">
         One row per tube. Columns: the sample type's fields (same names), <b>Name on Tube</b>, Aliquot #, Aliquot size (ul), Date received, Notes,
         and the location: <b>Freezer · Compartment · Rack · Level · Depth · Box Name · Location in Box</b> (e.g. "1-3" = row 1, column 3).
-        Missing boxes are created; racks must already exist.
+        Missing boxes are created; racks must already exist. A <b>Status</b> column (In freezer / Used / Discarded) or a note like "Finished by …" records the aliquot as used.
       </p>
       <div className="grid grid-cols-[12rem_1fr] gap-3">
         <select className={inputCls} value={typeId} onChange={(e) => { setTypeId(e.target.value); check(rows, e.target.value); }}>
@@ -324,7 +324,8 @@ export function M80ImportPanel({ types, onImported }) {
       {preview && !result && (
         <div className={`${box} space-y-2`}>
           <div className="flex flex-wrap gap-6">
-            <span><b className="text-emerald-300">{preview.created}</b> tubes to store</span>
+            <span><b className="text-emerald-300">{preview.created - (preview.used || 0)}</b> tubes to store</span>
+            {preview.used > 0 && <span><b className="text-white/70">{preview.used}</b> already used up (go to the history, position stays free)</span>}
             <span><b className={preview.skipped.length ? 'text-amber-300' : 'text-white/40'}>{preview.skipped.length}</b> left out</span>
           </div>
           {preview.new_boxes.length > 0 && <div className="text-xs text-indigo-200">New box{preview.new_boxes.length === 1 ? '' : 'es'}: {preview.new_boxes.join(' | ')}</div>}

@@ -653,6 +653,7 @@ COMMON_COLUMNS = {
     "frozen_date": ["date received", "frozen date", "date frozen"],
     "frozen_by": ["frozen by", "received by"],
     "comment": ["notes", "comment"],
+    "status": ["status"],
     "freezer": ["freezer"], "compartment": ["compartment"], "rack": ["rack"], "level": ["level"],
     "slot": ["depth", "box position"], "box": ["box name", "box"], "well": ["location in box", "position in box", "well"],
 }
@@ -675,6 +676,20 @@ def _volume(v) -> Optional[str]:
     return f"{_number(s)} µL" if re.fullmatch(r"[\d.]+", s) else s
 
 
+# "Finished by Armando", "Used", "Empty": the aliquot was used up and is no longer in the box
+USED_NOTE = re.compile(r"^\s*(finished|used|empty|gone|consumed)\b(?:\s+by\s+(.+?))?\s*[.;]?\s*$", re.I)
+STATUS_WORDS = {"in freezer": IN_FREEZER, "used": models.M80TubeStatus.USED, "discarded": models.M80TubeStatus.DISCARDED}
+
+
+def _row_status(status_text, note):
+    """(status, removed_by) from a Status column or a "Finished by X" note."""
+    st = STATUS_WORDS.get(_norm(status_text)) if status_text else None
+    m = USED_NOTE.match(str(note or ""))
+    if st is None:
+        st = models.M80TubeStatus.USED if m else IN_FREEZER
+    return st, (m.group(2).strip() if m and m.group(2) else None)
+
+
 def _find_freezer(freezers, text) -> Optional[models.M80Freezer]:
     t = _norm(text)
     exact = [f for f in freezers if _norm(f.name) == t]
@@ -691,7 +706,7 @@ def import_tubes(data: schemas.M80Import, dry_run: bool = True, db: Session = De
     says what would happen row by row."""
     stype = _get(db, models.M80SampleType, data.sample_type_id, "Sample type")
     freezers = db.query(models.M80Freezer).all()
-    created, skipped, new_boxes = 0, [], {}
+    created, used, skipped, new_boxes = 0, 0, [], {}
     taken = set()  # (box key, well) used by earlier rows of this file
 
     def skip(line, name, reason):
@@ -760,31 +775,47 @@ def import_tubes(data: schemas.M80Import, dry_run: bool = True, db: Session = De
             skip(line, name, f"That position holds box '{box.label}', not '{label}'")
             continue
 
+        note = str(col("comment")).strip() if col("comment") else None
+        status, used_by = _row_status(col("status"), note)
         w = str(col("well") or "").strip()
         m = re.match(r"(\d+)\s*[-,.]\s*(\d+)$", w)
         well = (int(m.group(1)) - 1) * box.columns + int(m.group(2)) if m and int(m.group(2)) <= box.columns else _lead_int(w) if not m else None
         if not well or not 1 <= well <= box.rows * box.columns:
             skip(line, name, f"Position '{w}' does not exist in a {box.rows}×{box.columns} box")
             continue
-        if (box.id, well) in taken:
-            skip(line, name, f"Position {w} is used twice in the file")
+        same = db.query(models.M80Tube).filter(models.M80Tube.box_id == box.id, models.M80Tube.well == well,
+                                               models.M80Tube.sample_name == name)
+        if aliquot is not None:
+            same = same.filter(models.M80Tube.aliquot_number == aliquot)
+        if same.first():
+            skip(line, name, "Already imported")
             continue
-        here = db.query(models.M80Tube).filter(models.M80Tube.box_id == box.id, models.M80Tube.well == well,
-                                               models.M80Tube.status == IN_FREEZER).first()
-        if here:
-            skip(line, name, "Already imported" if here.sample_name == name else f"Position {w} holds {here.sample_name}")
-            continue
-        taken.add((box.id, well))
+        # Used-up aliquots are history only: they do not take the position
+        if status == IN_FREEZER:
+            if (box.id, well) in taken:
+                skip(line, name, f"Position {w} is used twice in the file")
+                continue
+            here = db.query(models.M80Tube).filter(models.M80Tube.box_id == box.id, models.M80Tube.well == well,
+                                                   models.M80Tube.status == IN_FREEZER).first()
+            if here:
+                skip(line, name, f"Position {w} holds {here.sample_name}")
+                continue
+            taken.add((box.id, well))
         db.add(models.M80Tube(
             box_id=box.id, well=well, sample_name=name, sample_type=stype.name, sample_type_id=stype.id,
             data=values, aliquot_number=aliquot,
             volume=_volume(col("volume")),
             frozen_date=date.fromisoformat(frozen) if frozen else None, frozen_by=(str(col("frozen_by")).strip().upper() if col("frozen_by") else None),
-            comment=str(col("comment")).strip() if col("comment") else None,
+            comment=note, status=status,
+            removed_by=used_by if status != IN_FREEZER else None,
+            removed_note=note if status != IN_FREEZER else None,
         ))
         created += 1
+        if status != IN_FREEZER:
+            used += 1
 
-    result = {"dry_run": dry_run, "created": created, "skipped": skipped, "new_boxes": list(new_boxes.values())}
+    result = {"dry_run": dry_run, "created": created, "used": used, "skipped": skipped,
+              "new_boxes": list(new_boxes.values())}
     if dry_run:
         db.rollback()
     else:
