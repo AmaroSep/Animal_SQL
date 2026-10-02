@@ -695,22 +695,28 @@ export default function BioterioApp() {
                 </label>
                 {(() => {
                   // Only cages this user may put animals into (theirs, or empty and unassigned)
-                  const allCages = racks.flatMap(r => r.cages).filter(c => c.cage_number != null && (canModifyCage(c) || c.id === newAnimal.cage_id));
+                  // Cages need no cage number: most only have a card (e.g. "CM: 060(C)") or just a position
+                  const allCages = racks.flatMap(r => r.cages).filter(c => canModifyCage(c) || c.id === newAnimal.cage_id);
                   const selectedCageObj = allCages.find(c => c.id === newAnimal.cage_id);
                   const rackOf = (c) => racks.find(r => r.cages.some(rc => rc.id === c.id));
+                  const pos = (c) => `${String.fromCharCode(64 + c.column)}${c.row}`;
+                  const rackNo = (c) => (rackOf(c)?.name || '').replace(/\D/g, '');
+                  const squash = (v) => String(v ?? '').toLowerCase().replace(/[\s:()-]/g, '');
+                  const cageName = (c) => c.card_id || (c.cage_number != null ? `#${c.cage_number}` : pos(c));
                   const filtered = allCages.filter(c => {
-                    const s = cageSearch.toLowerCase();
-                    return !s || String(c.cage_number).includes(s) ||
-                      `${String.fromCharCode(64 + c.column)}${c.row}`.toLowerCase().includes(s) ||
-                      (rackOf(c)?.name || '').toLowerCase().includes(s);
-                  });
+                    const s = squash(cageSearch);
+                    // "060c", "cm060", "b7", "b7r4", "rack 4", "29"
+                    return !s || squash(c.card_id).includes(s) || String(c.cage_number ?? '') === s ||
+                      squash(pos(c)).startsWith(s) || `${squash(pos(c))}r${rackNo(c)}`.startsWith(s) ||
+                      squash(rackOf(c)?.name).includes(s);
+                  }).slice(0, 60);
                   return (
                     <div className="relative">
                       <input
                         type="text"
                         placeholder={selectedCageObj
-                          ? `Cage #${selectedCageObj.cage_number} — ${String.fromCharCode(64 + selectedCageObj.column)}${selectedCageObj.row} (${rackOf(selectedCageObj)?.name ?? ''})`
-                          : 'Search by cage number or position...'}
+                          ? `${cageName(selectedCageObj)} — ${pos(selectedCageObj)} (${rackOf(selectedCageObj)?.name ?? ''})`
+                          : 'Search by cage card, number or position (e.g. CM060, B7-R4)...'}
                         value={cageSearch}
                         onChange={e => { setCageSearch(e.target.value); setNewAnimal({...newAnimal, cage_id: null}); }}
                         className={`w-full bg-white/5 border rounded-xl px-4 py-3 outline-none transition-colors font-mono text-sm ${newAnimal.cage_id ? 'border-biotech-accent text-biotech-accent' : 'border-white/10 text-white'} focus:border-biotech-accent`}
@@ -727,9 +733,9 @@ export default function BioterioApp() {
                               onClick={() => { setNewAnimal({...newAnimal, cage_id: c.id}); setCageSearch(''); }}
                               className="w-full flex items-center justify-between px-4 py-2.5 hover:bg-biotech-accent/10 transition-colors text-left"
                             >
-                              <span className="text-sm font-black text-biotech-accent">#{c.cage_number}</span>
+                              <span className="text-sm font-black text-biotech-accent">{cageName(c)}</span>
                               <span className="text-xs font-mono text-white/40">
-                                {String.fromCharCode(64 + c.column)}{c.row} — {rackOf(c)?.name ?? ''}
+                                {pos(c)} — {rackOf(c)?.name ?? ''}
                               </span>
                               <span className="text-[10px] text-white/20">{c.animals?.length ?? 0} anim.</span>
                             </button>
