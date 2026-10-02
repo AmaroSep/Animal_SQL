@@ -124,7 +124,7 @@ export function exportColonyWorkbook(animals, title = 'Colony') {
   });
   if (removed.length) {
     aoa.push([]);
-    removed.forEach((a) => aoa.push(['', '', a.animal_code || '', a.mark || '', date(a.dob), a.sex || '', a.genotype || '',
+    removed.forEach((a) => aoa.push(['', a.cage_card || '', a.animal_code || '', a.mark || '', date(a.dob), a.sex || '', a.genotype || '',
       ageText(a), a.status, a.parent_1 || '', a.parent_2 || '', a.responsible || '',
       [a.elimination_reason, a.status_date].filter(Boolean).join(' · ')]));
   }

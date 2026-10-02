@@ -6,6 +6,7 @@ responsible user (or an admin) may change the cage and its animals.
   and is not the home cage of an animal currently in a breeding session.
 """
 from fastapi import HTTPException, Request
+from sqlalchemy import event
 from sqlalchemy.orm import Session
 
 import models
@@ -78,3 +79,16 @@ def release_if_empty(db: Session, cage: models.Cage):
     ).count()
     if _live_count(db, cage.id) == 0 and waiting_home == 0:
         cage.owner_id = None
+
+
+@event.listens_for(Session, "before_flush")
+def keep_removed_history(session, flush_context, instances):
+    """When an animal is removed, remember whose it was and its cage card:
+    the cage can be released (and reused) once it is empty."""
+    for obj in list(session.new) + list(session.dirty):
+        if (isinstance(obj, models.Animal) and obj.status not in (None, models.AnimalStatus.ALIVE)
+                and obj.responsible_id is None and obj.cage_id):
+            cage = session.get(models.Cage, obj.cage_id)
+            if cage:
+                obj.responsible_id = cage.owner_id
+                obj.last_cage_card = obj.last_cage_card or cage.card_id

@@ -127,6 +127,9 @@ def run_migrations():
             END IF;
         END$$;
         """,
+        # v8: removed animals keep their responsible user and cage card
+        "ALTER TABLE animals ADD COLUMN IF NOT EXISTS responsible_id INTEGER REFERENCES users(id) ON DELETE SET NULL",
+        "ALTER TABLE animals ADD COLUMN IF NOT EXISTS last_cage_card VARCHAR",
         # v7: parents and wean date (shared colony format)
         "ALTER TABLE animals ADD COLUMN IF NOT EXISTS parent_1 VARCHAR",
         "ALTER TABLE animals ADD COLUMN IF NOT EXISTS parent_2 VARCHAR",

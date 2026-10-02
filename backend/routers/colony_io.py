@@ -36,18 +36,20 @@ def _position(cage: Optional[models.Cage]):
 
 @router.get("/animals/export")
 def export_animals(request: Request, scope: str = "mine", db: Session = Depends(get_db)):
-    """Animals of the user's cages, or every animal for an admin with scope=all.
-    Removed animals usually keep no cage, so they only appear in the full (scope=all) export."""
+    """Animals of the user's cages (and the user's removed animals), or every animal
+    for an admin with scope=all."""
     user = acting_user(request, db)
     everyone = scope == "all" and is_admin(user)
     q = db.query(models.Animal).options(joinedload(models.Animal.cage).joinedload(models.Cage.rack),
-                                         joinedload(models.Animal.cage).joinedload(models.Cage.owner))
+                                         joinedload(models.Animal.cage).joinedload(models.Cage.owner),
+                                         joinedload(models.Animal.responsible))
     out = []
     for a in q.order_by(models.Animal.id).all():
         cage = a.cage
-        if not everyone and (not cage or cage.owner_id != user.id):
+        # A removed animal stays with whoever had it, even if its cage was released or reused
+        owner = a.responsible if a.status != ALIVE and a.responsible_id else (cage.owner if cage else None)
+        if not everyone and (not owner or owner.id != user.id):
             continue
-        owner = cage.owner if cage else None
         out.append({
             "id": a.id, "animal_code": a.external_id, "mark": a.mark, "dob": a.dob.isoformat() if a.dob else None,
             "sex": a.sex.value if a.sex else None, "genotype": a.genotype,
@@ -61,7 +63,8 @@ def export_animals(request: Request, scope: str = "mine", db: Session = Depends(
             "elimination_reason": a.elimination_reason, "notes": a.notes, "origin_cage": a.origin_cage,
             "position": _position(cage), "rack": int(cage.rack.name.split()[-1]) if cage and cage.rack else None,
             "row": cage.row if cage else None, "column": chr(64 + cage.column) if cage else None,
-            "cage_card": cage.card_id if cage else None, "cage_number": cage.cage_number if cage else None,
+            "cage_card": (a.last_cage_card or (cage.card_id if cage else None)) if a.status != ALIVE
+                         else (cage.card_id if cage else None), "cage_number": cage.cage_number if cage else None,
             "breeding": bool(cage and cage.is_breeding_pair),
             "responsible": (owner.full_name or owner.username) if owner else None,
             "responsible_username": owner.username if owner else None,
@@ -173,6 +176,10 @@ def import_rows(data: schemas.ColonyImport, request: Request, dry_run: bool = Tr
         )
         if r.notes:
             fields["notes"] = r.notes
+        if status != ALIVE:
+            fields["responsible_id"] = owner.id
+            if r.cage_card:
+                fields["last_cage_card"] = r.cage_card
         when = datetime.combine(r.status_date, datetime.min.time()) if r.status_date else datetime.utcnow()
         if animal:
             if animal.cage_id and animal.cage and animal.cage.owner_id not in (None, owner.id) and not is_admin(importer):

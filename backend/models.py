@@ -91,8 +91,13 @@ class Animal(Base):
     parent_1 = Column(String, nullable=True)           # parents' animal codes (colony format)
     parent_2 = Column(String, nullable=True)
     wean_date = Column(Date, nullable=True)
+    # Kept when the animal is removed (dead / eliminated): its cage may later be
+    # released or reused by someone else, so the history stays with these
+    responsible_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    last_cage_card = Column(String, nullable=True)
 
     cage = relationship("Cage", back_populates="animals", foreign_keys=[cage_id])
+    responsible = relationship("User", foreign_keys=[responsible_id])
 
 
 # ── EM Grids inventory ─────────────────────────────────────────────────────
