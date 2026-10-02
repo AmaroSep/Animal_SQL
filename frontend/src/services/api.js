@@ -51,6 +51,8 @@ export const updateCageCard = (cageId, cardId) =>
   request(`/cages/${cageId}/card`, json('PATCH', { card_id: cardId }));
 export const updateCageNumber = (cageId, cageNumber) =>
   request(`/cages/${cageId}/number`, json('PATCH', { cage_number: cageNumber }));
+export const moveCage = (cageId, rackId, row, column) =>
+  request(`/cages/${cageId}/move`, json('POST', { rack_id: rackId, row, column }));
 export const swapCagePositions = (cageAId, cageBId) =>
   request('/cages/swap-positions', json('POST', { cage_a_id: cageAId, cage_b_id: cageBId }));
 export const mergeCages = (sourceId, destId) =>

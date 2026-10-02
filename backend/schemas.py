@@ -100,6 +100,11 @@ class CageSwapPositions(BaseModel):
     cage_a_id: int
     cage_b_id: int
 
+class CageMove(BaseModel):
+    rack_id: int
+    row: int
+    column: int
+
 class RackBase(BaseModel):
     name: str
 

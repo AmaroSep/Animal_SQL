@@ -325,6 +325,41 @@ def swap_cage_positions(swap: schemas.CageSwapPositions, request: Request, db: S
         raise HTTPException(status_code=400, detail=str(e))
     return {"message": "Positions swapped"}
 
+@app.post("/cages/{cage_id}/move")
+def move_cage(cage_id: int, move: schemas.CageMove, request: Request, db: Session = Depends(get_db)):
+    """Move a whole cage (animals, card, responsible person, breeding state) to a free
+    position, in the same rack or another one. The empty slot takes the old position."""
+    cage = db.query(models.Cage).filter(models.Cage.id == cage_id).first()
+    if not cage:
+        raise HTTPException(status_code=404, detail="Cage not found")
+    user = acting_user(request, db)
+    check_cage(db, user, cage)
+    rack = db.query(models.Rack).filter(models.Rack.id == move.rack_id).first()
+    if not rack:
+        raise HTTPException(status_code=404, detail="Rack not found")
+    label = f"{rack.name} {chr(64 + move.column)}{move.row}"
+    target = db.query(models.Cage).filter(models.Cage.rack_id == rack.id, models.Cage.row == move.row,
+                                          models.Cage.column == move.column).first()
+    if not target:
+        raise HTTPException(status_code=400, detail=f"{label} does not exist")
+    if target.id == cage.id:
+        raise HTTPException(status_code=400, detail="The cage is already there")
+    alive = models.AnimalStatus.ALIVE
+    busy = (
+        db.query(models.Animal).filter(models.Animal.cage_id == target.id, models.Animal.status == alive).count()
+        or target.is_breeding_pair
+        or db.query(models.Animal).filter(models.Animal.previous_cage_id == target.id, models.Animal.status == alive).count()
+    )
+    if busy:
+        raise HTTPException(status_code=400, detail=f"{label} is not free")
+    if target.owner_id not in (None, user.id) and not is_admin(user):
+        raise HTTPException(status_code=403, detail=f"{label} is reserved by {target.owner.full_name or target.owner.username}")
+    cage.rack_id, target.rack_id = target.rack_id, cage.rack_id
+    cage.row, target.row = target.row, cage.row
+    cage.column, target.column = target.column, cage.column
+    db.commit()
+    return {"message": f"Cage moved to {label}"}
+
 @app.patch("/cages/owner")
 def set_cage_owner(data: schemas.CageOwnerUpdate, request: Request, db: Session = Depends(get_db)):
     """Hand cages over to another user (their responsible person or an admin can)."""

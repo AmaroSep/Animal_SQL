@@ -1,11 +1,14 @@
 import React, { useState, useEffect } from 'react';
-import { X, Skull, Trash2, Plus, Pencil, HeartOff, RefreshCw, Hash, GitBranch } from 'lucide-react';
-import { updateAnimalStatus, endBreedingSession, updateCageNumber, updateCageCard, setCageOwner } from '../../../services/api';
+import { X, Skull, Trash2, Plus, Pencil, HeartOff, RefreshCw, Hash, GitBranch, Move } from 'lucide-react';
+import { updateAnimalStatus, endBreedingSession, updateCageNumber, updateCageCard, setCageOwner, moveCage } from '../../../services/api';
 import { useAuth } from '../../../auth/AuthContext';
 import { animalStatusLabel } from '../../../utils/labels';
 
 export default function CageModal({ cage, racks = [], canModify = true, directory = [], onClose, onUpdate, onAddAnimal, onEditAnimal, onMergeStart, onShowFamily }) {
-  const { isAdmin } = useAuth();
+  const { isAdmin, user } = useAuth();
+  const [showMove, setShowMove] = useState(false);
+  const [moveRackId, setMoveRackId] = useState(null);
+  const [moveTo, setMoveTo] = useState(null); // target cage slot
   const [handTo, setHandTo] = useState('');
   const [showEndDialog, setShowEndDialog] = useState(false);
   const [endOption, setEndOption] = useState('Home');
@@ -19,6 +22,8 @@ export default function CageModal({ cage, racks = [], canModify = true, director
     setEndOption('Home');
     setNewCageId('');
     setEditingCageNumber(false);
+    setShowMove(false);
+    setMoveTo(null);
   }, [cage?.id]);
 
   if (!cage) return null;
@@ -28,6 +33,28 @@ export default function CageModal({ cage, racks = [], canModify = true, director
     if (value === null) return;
     try {
       await updateCageCard(cage.id, value);
+      onUpdate();
+    } catch (err) {
+      alert(err.message);
+    }
+  };
+
+  const openMove = () => {
+    setMoveRackId(cage.rack_id ?? racks.find(r => r.cages.some(c => c.id === cage.id))?.id ?? racks[0]?.id);
+    setMoveTo(null);
+    setShowMove(true);
+  };
+
+  // A position can take the cage when nothing lives there and nobody else holds it
+  const isFree = (c) => c.id !== cage.id && !(c.animals?.length) && !c.is_breeding_pair &&
+    (c.owner_id == null || c.owner_id === user?.id || isAdmin);
+
+  const doMove = async () => {
+    const rack = racks.find(r => r.id === moveRackId);
+    if (!moveTo || !rack) return;
+    try {
+      await moveCage(cage.id, rack.id, moveTo.row, moveTo.column);
+      setShowMove(false);
       onUpdate();
     } catch (err) {
       alert(err.message);
@@ -194,6 +221,15 @@ export default function CageModal({ cage, racks = [], canModify = true, director
               </button>
             )}
 
+            <button
+              onClick={openMove}
+              disabled={!canModify}
+              className="flex items-center gap-2 px-6 py-3 bg-white/5 hover:bg-biotech-accent hover:text-biotech-blue border border-white/10 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all disabled:opacity-30 disabled:cursor-not-allowed"
+            >
+              <Move size={14} />
+              Move Cage
+            </button>
+
             <button 
               onClick={handleMergeStart}
               disabled={!canModify || !cage.animals || cage.animals.length === 0}
@@ -226,7 +262,69 @@ export default function CageModal({ cage, racks = [], canModify = true, director
             View only — {cage.owner ? `this cage belongs to ${cage.owner.full_name || cage.owner.username}` : 'this cage has no responsible person yet; an administrator can assign it'}.
           </div>
         )}
-        <div className={`p-8 max-h-[70vh] overflow-y-auto relative ${showEndDialog ? 'min-h-[560px]' : ''}`}>
+        <div className={`p-8 max-h-[70vh] overflow-y-auto relative ${showEndDialog || showMove ? 'min-h-[560px]' : ''}`}>
+          {/* Move the whole cage to a free position (any rack) */}
+          {showMove && (() => {
+            const rack = racks.find(r => r.id === moveRackId);
+            const cells = rack?.cages || [];
+            const rows = Math.max(0, ...cells.map(c => c.row));
+            const cols = Math.max(0, ...cells.map(c => c.column));
+            const at = Object.fromEntries(cells.map(c => [`${c.row}-${c.column}`, c]));
+            const here = racks.find(r => r.cages.some(c => c.id === cage.id));
+            return (
+              <div className="absolute inset-0 z-10 bg-biotech-blue/95 backdrop-blur-md overflow-y-auto p-8">
+                <div className="max-w-2xl mx-auto space-y-5">
+                  <div className="text-center">
+                    <h3 className="text-xl font-black text-biotech-accent uppercase tracking-tighter">Move cage</h3>
+                    <p className="text-white/40 text-xs mt-2">
+                      From {here?.name} {String.fromCharCode(64 + cage.column)}{cage.row}{cage.card_id ? ` (${cage.card_id})` : ''}. Animals, card, responsible person and breeding state move with it.
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap justify-center gap-2">
+                    {racks.map(r => (
+                      <button key={r.id} onClick={() => { setMoveRackId(r.id); setMoveTo(null); }}
+                        className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest border ${r.id === moveRackId ? 'bg-biotech-accent text-biotech-blue border-biotech-accent' : 'bg-white/5 text-white/50 border-white/10 hover:bg-white/10'}`}>
+                        {r.name}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="grid gap-1.5 mx-auto w-max" style={{ gridTemplateColumns: `1.5rem repeat(${cols}, 3.5rem)` }}>
+                    <span />
+                    {Array.from({ length: cols }, (_, i) => <span key={i} className="text-center text-[10px] font-mono text-white/30">{String.fromCharCode(65 + i)}</span>)}
+                    {Array.from({ length: rows }, (_, ri) => ri + 1).flatMap(row => [
+                      <span key={`r${row}`} className="text-right pr-1 text-[10px] font-mono text-white/30 self-center">{row}</span>,
+                      ...Array.from({ length: cols }, (_, ci) => ci + 1).map(col => {
+                        const c = at[`${row}-${col}`];
+                        if (!c) return <span key={`${row}-${col}`} />;
+                        const isSelf = c.id === cage.id;
+                        const free = isFree(c);
+                        const chosen = moveTo && moveTo.row === row && moveTo.column === col;
+                        return (
+                          <button key={c.id} disabled={!free} onClick={() => setMoveTo({ row, column: col })}
+                            title={isSelf ? 'This cage' : free ? `Move here: ${String.fromCharCode(64 + col)}${row}` : `${String.fromCharCode(64 + col)}${row}: ${c.card_id || (c.owner ? c.owner.full_name || c.owner.username : 'in use')}`}
+                            className={`h-10 rounded-lg border text-[9px] font-mono leading-tight px-0.5 truncate ${
+                              isSelf ? 'border-biotech-accent bg-biotech-accent/30 text-white font-black'
+                                : chosen ? 'border-emerald-300 bg-emerald-400/40 text-white font-black'
+                                  : free ? 'border-emerald-400/40 bg-emerald-500/5 text-emerald-200/60 hover:bg-emerald-500/20'
+                                    : 'border-white/5 bg-white/5 text-white/25 cursor-not-allowed'}`}>
+                            {isSelf ? 'HERE' : free ? `${String.fromCharCode(64 + col)}${row}` : (c.card_id || c.owner?.initials || '•')}
+                          </button>
+                        );
+                      }),
+                    ])}
+                  </div>
+                  <p className="text-center text-[10px] font-mono text-white/40">Green = free position · grey = in use or reserved by someone else</p>
+                  <div className="flex gap-4">
+                    <button onClick={() => setShowMove(false)} className="flex-1 px-8 py-4 border border-white/10 rounded-2xl text-[10px] font-black uppercase tracking-widest text-white/40 hover:bg-white/5">Cancel</button>
+                    <button onClick={doMove} disabled={!moveTo}
+                      className="flex-1 px-8 py-4 disabled:opacity-30 bg-biotech-accent rounded-2xl text-[10px] font-black uppercase tracking-widest text-biotech-blue">
+                      {moveTo ? `Move to ${rack?.name} ${String.fromCharCode(64 + moveTo.column)}${moveTo.row}` : 'Choose a free position'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
           {/* Termination Dialog Overlay */}
           {showEndDialog && (
             <div className="absolute inset-0 z-10 bg-biotech-blue/90 backdrop-blur-md flex items-center justify-center p-8">
