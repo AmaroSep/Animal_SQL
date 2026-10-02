@@ -9,7 +9,7 @@ import { useAuth } from '../../auth/AuthContext';
 import ColonyImportModal from './components/ColonyImportModal';
 import FamilyTreeModal from './components/FamilyTreeModal';
 import { exportColonyWorkbook } from '../../utils/colonyFormat';
-import { fetchColonyExport, fetchDirectory, fetchRacks, fetchRack, createAnimal, fetchHistory, fetchStatistics, updateAnimal, swapCagePositions } from '../../services/api';
+import { fetchColonyExport, fetchDirectory, fetchRacks, fetchRack, createAnimal, fetchHistory, fetchStatistics, updateAnimal, swapCagePositions, fetchAnimalCodes } from '../../services/api';
 
 export default function BioterioApp() {
   const navigate = useNavigate();
@@ -34,10 +34,17 @@ export default function BioterioApp() {
     status: 'Vivo',
     external_id: '',
     origin_cage: '',
-    notes: ''
+    notes: '',
+    parent_1: '',
+    parent_2: ''
   });
   const [editingAnimalId, setEditingAnimalId] = useState(null);
+  // Animal Codes suggested as parents (loaded when the form opens)
+  const [animalCodes, setAnimalCodes] = useState([]);
   const [cageSearch, setCageSearch] = useState('');
+  useEffect(() => {
+    if (showAddModal) fetchAnimalCodes().then(setAnimalCodes).catch(() => setAnimalCodes([]));
+  }, [showAddModal]);
 
   // V1.11 Breeding Wizard State
   const [showBreedingWizard, setShowBreedingWizard] = useState(false);
@@ -147,7 +154,9 @@ export default function BioterioApp() {
           cage_id: newAnimal.cage_id,
           external_id: newAnimal.external_id || null,
           origin_cage: newAnimal.origin_cage || null,
-          notes: newAnimal.notes || null
+          notes: newAnimal.notes || null,
+          parent_1: newAnimal.parent_1?.trim() || null,
+          parent_2: newAnimal.parent_2?.trim() || null
         });
         alert('Animal updated');
       } else {
@@ -160,7 +169,9 @@ export default function BioterioApp() {
           cage_id: newAnimal.cage_id,
           external_id: newAnimal.external_id || null,
           origin_cage: newAnimal.origin_cage || null,
-          notes: newAnimal.notes || null
+          notes: newAnimal.notes || null,
+          parent_1: newAnimal.parent_1?.trim() || null,
+          parent_2: newAnimal.parent_2?.trim() || null
         });
         alert('Animal registered');
       }
@@ -184,7 +195,9 @@ export default function BioterioApp() {
       status: animal.status,
       external_id: animal.external_id || '',
       origin_cage: animal.origin_cage || '',
-      notes: animal.notes || ''
+      notes: animal.notes || '',
+      parent_1: animal.parent_1 || '',
+      parent_2: animal.parent_2 || ''
     });
     setCageSearch('');
     setEditingAnimalId(animal.id);
@@ -293,7 +306,7 @@ export default function BioterioApp() {
 
           <button
             onClick={() => {
-              setNewAnimal({ sex: 'M', dob: new Date().toISOString().split('T')[0], mark: '', genotype: '', cage_id: null, status: 'Vivo', external_id: '', origin_cage: '', notes: '' });
+              setNewAnimal({ sex: 'M', dob: new Date().toISOString().split('T')[0], mark: '', genotype: '', cage_id: null, status: 'Vivo', external_id: '', origin_cage: '', notes: '', parent_1: '', parent_2: '' });
               setIsEditing(false); setEditingAnimalId(null); setCageSearch(''); setShowAddModal(true);
             }}
             className="flex items-center gap-2 px-6 py-3 bg-white/10 hover:bg-biotech-accent hover:text-biotech-blue rounded-xl text-xs font-black uppercase tracking-widest transition-all group"
@@ -801,13 +814,33 @@ export default function BioterioApp() {
                 <input required placeholder="WT / Cre-ERT2" value={newAnimal.genotype} onChange={e => setNewAnimal({...newAnimal, genotype: e.target.value})} className="bg-white/5 border border-white/10 rounded-xl px-4 py-3 outline-none focus:border-biotech-accent transition-colors font-mono" />
               </div>
               <div className="flex flex-col gap-2">
-                <label className="text-[10px] font-black uppercase tracking-widest text-white/40 ml-1">Individual ID</label>
-                <input placeholder="e.g. HF134" value={newAnimal.external_id} onChange={e => setNewAnimal({...newAnimal, external_id: e.target.value})} className="bg-white/5 border border-white/10 rounded-xl px-4 py-3 outline-none focus:border-biotech-accent transition-colors font-mono" />
+                <label className="text-[10px] font-black uppercase tracking-widest text-white/40 ml-1">Animal Code</label>
+                <input placeholder="e.g. BN 520, HF134" value={newAnimal.external_id} onChange={e => setNewAnimal({...newAnimal, external_id: e.target.value})} className="bg-white/5 border border-white/10 rounded-xl px-4 py-3 outline-none focus:border-biotech-accent transition-colors font-mono" />
               </div>
               <div className="flex flex-col gap-2">
                 <label className="text-[10px] font-black uppercase tracking-widest text-white/40 ml-1">Origin cage</label>
                 <input placeholder="Cage it came from" value={newAnimal.origin_cage} onChange={e => setNewAnimal({...newAnimal, origin_cage: e.target.value})} className="bg-white/5 border border-white/10 rounded-xl px-4 py-3 outline-none focus:border-biotech-accent transition-colors font-mono" />
               </div>
+              {/* Parents, by Animal Code: they link the family tree */}
+              {[['parent_1', 'Parent 1'], ['parent_2', 'Parent 2']].map(([k, lbl]) => {
+                const v = (newAnimal[k] || '').trim();
+                const key = (t) => t.replace(/\(.*?\)/g, '').replace(/\s+/g, '').toUpperCase();
+                const hit = v && animalCodes.find(a => key(a.code) === key(v));
+                return (
+                  <div key={k} className="flex flex-col gap-2">
+                    <label className="text-[10px] font-black uppercase tracking-widest text-white/40 ml-1">{lbl} <span className="normal-case font-normal text-white/30">(Animal Code)</span></label>
+                    <input list="animal-codes" placeholder="e.g. BN 447, Jackson Lab" value={newAnimal[k] || ''} onChange={e => setNewAnimal({...newAnimal, [k]: e.target.value})} className="bg-white/5 border border-white/10 rounded-xl px-4 py-3 outline-none focus:border-biotech-accent transition-colors font-mono" />
+                    {v && (
+                      <span className={`text-[10px] font-mono ml-1 ${hit ? 'text-emerald-300/80' : 'text-amber-200/70'}`}>
+                        {hit ? `${hit.sex === 'M' ? '♂' : '♀'} ${hit.genotype} · ${hit.status}` : /\d/.test(v) ? 'Not in the system: saved as written' : 'Origin (supplier)'}
+                      </span>
+                    )}
+                  </div>
+                );
+              })}
+              <datalist id="animal-codes">
+                {animalCodes.map(a => <option key={a.code} value={a.code}>{`${a.sex === 'M' ? '♂' : '♀'} ${a.genotype} · ${a.status}`}</option>)}
+              </datalist>
               <div className="col-span-2 flex flex-col gap-2">
                 <label className="text-[10px] font-black uppercase tracking-widest text-white/40 ml-1">Notes / experiments</label>
                 <textarea rows={2} placeholder="Samples, projects, observations" value={newAnimal.notes} onChange={e => setNewAnimal({...newAnimal, notes: e.target.value})} className="bg-white/5 border border-white/10 rounded-xl px-4 py-3 outline-none focus:border-biotech-accent transition-colors font-mono" />

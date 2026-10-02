@@ -67,6 +67,7 @@ export const updateAnimalStatus = (id, status, reason = null) =>
 export const fetchHistory = () => request('/animals/history');
 export const fetchStatistics = (scope = 'mine') => request(`/statistics?scope=${scope}`);
 export const fetchColonyExport = (scope = 'mine') => request(`/animals/export?scope=${scope}`);
+export const fetchAnimalCodes = () => request('/animals/codes');
 export const fetchFamily = ({ id, code }) =>
   request(id != null ? `/animals/family?animal_id=${id}` : `/animals/family?code=${encodeURIComponent(code)}`);
 export const importColonyRows = (rows, defaultResponsible, dryRun = true) =>

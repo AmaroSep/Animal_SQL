@@ -296,3 +296,12 @@ def animal_family(animal_id: Optional[int] = None, code: Optional[str] = None, d
     me = node(root)
     me["parents"] = parents_of(root, 2)
     return {"animal": me, "children": children}
+
+
+@router.get("/animals/codes")
+def animal_codes(db: Session = Depends(get_db)):
+    """Every Animal Code (live and removed), to suggest parents in the animal form."""
+    rows = db.query(models.Animal).filter(models.Animal.external_id.isnot(None), models.Animal.external_id != "").all()
+    return sorted(({"code": a.external_id, "sex": a.sex.value if a.sex else None, "genotype": a.genotype,
+                    "status": STATUS_LABEL.get(a.status, str(a.status))} for a in rows),
+                  key=lambda r: r["code"])
