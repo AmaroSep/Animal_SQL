@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { X, Skull, Trash2, Plus, Pencil, HeartOff, RefreshCw, Hash } from 'lucide-react';
+import { X, Skull, Trash2, Plus, Pencil, HeartOff, RefreshCw, Hash, GitBranch } from 'lucide-react';
 import { updateAnimalStatus, endBreedingSession, updateCageNumber, updateCageCard, setCageOwner } from '../../../services/api';
 import { useAuth } from '../../../auth/AuthContext';
 import { animalStatusLabel } from '../../../utils/labels';
 
-export default function CageModal({ cage, racks = [], canModify = true, directory = [], onClose, onUpdate, onAddAnimal, onEditAnimal, onMergeStart }) {
+export default function CageModal({ cage, racks = [], canModify = true, directory = [], onClose, onUpdate, onAddAnimal, onEditAnimal, onMergeStart, onShowFamily }) {
   const { isAdmin } = useAuth();
   const [handTo, setHandTo] = useState('');
   const [showEndDialog, setShowEndDialog] = useState(false);
@@ -354,8 +354,18 @@ export default function CageModal({ cage, racks = [], canModify = true, director
                       </span>
                     </td>
                     <td className="px-4 py-4 text-right">
+                      <div className="flex justify-end gap-2 text-white">
+                      {onShowFamily && (
+                        <button
+                          onClick={() => onShowFamily(animal.id)}
+                          title="Family tree"
+                          className="p-2 bg-violet-500/20 hover:bg-violet-500 text-violet-300 hover:text-white rounded-lg transition-all"
+                        >
+                          <GitBranch size={16} />
+                        </button>
+                      )}
                       {animal.status === 'Vivo' && canModify && (
-                        <div className="flex justify-end gap-2 text-white">
+                        <>
                           <button 
                             onClick={() => onEditAnimal(animal)}
                             title="Edit Animal"
@@ -377,8 +387,9 @@ export default function CageModal({ cage, racks = [], canModify = true, director
                           >
                             <Skull size={16} />
                           </button>
-                        </div>
+                        </>
                       )}
+                      </div>
                     </td>
                   </tr>
                 ))}

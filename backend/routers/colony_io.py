@@ -4,6 +4,7 @@ Age, Status, Parents, Parents2, Responsible, Elimination Reason; plus a
 "Breeders" section). The browser parses / writes the workbook; this router
 works with plain rows.
 """
+import re
 from datetime import date, datetime
 from typing import Dict, List, Optional, Tuple
 
@@ -206,3 +207,92 @@ def import_rows(data: schemas.ColonyImport, request: Request, dry_run: bool = Tr
     else:
         db.commit()
     return result
+
+
+# ── Family tree ────────────────────────────────────────────────────────────
+# Parents are stored as text with the parent's Animal Code ("BN 447"). They can
+# carry notes ("BN 516 (NH)"), name two possible parents ("BN 463/462") or a
+# supplier instead of an animal ("Jackson Lab").
+
+def _code_key(text: Optional[str]) -> str:
+    t = re.sub(r"\(.*?\)", "", text or "")
+    return re.sub(r"\s+", "", t).upper()
+
+
+def _parent_options(text: Optional[str]) -> List[str]:
+    """'BN 463/462' -> ['BN463', 'BN462'] (a bare number takes the first option's prefix)."""
+    parts = [p.strip() for p in re.sub(r"\(.*?\)", "", text or "").split("/") if p.strip()]
+    keys = []
+    for p in parts:
+        k = _code_key(p)
+        if keys and k.isdigit():
+            prefix = re.match(r"^\D*", keys[0]).group(0)
+            k = prefix + k
+        keys.append(k)
+    return keys
+
+
+@router.get("/animals/family")
+def animal_family(animal_id: Optional[int] = None, code: Optional[str] = None, db: Session = Depends(get_db)):
+    """The animal, its parents and grandparents, and its offspring."""
+    animals = db.query(models.Animal).options(
+        joinedload(models.Animal.cage).joinedload(models.Cage.rack),
+        joinedload(models.Animal.cage).joinedload(models.Cage.owner),
+        joinedload(models.Animal.responsible)).all()
+    by_code: Dict[str, models.Animal] = {}
+    for a in sorted(animals, key=lambda a: a.id):
+        if a.external_id:
+            by_code.setdefault(_code_key(a.external_id), a)
+
+    if animal_id is not None:
+        root = next((a for a in animals if a.id == animal_id), None)
+    else:
+        root = by_code.get(_code_key(code))
+    if not root:
+        raise HTTPException(status_code=404, detail=f"No animal with code '{code}'" if code else "Animal not found")
+
+    def node(a: models.Animal) -> dict:
+        owner = a.responsible if a.status != ALIVE and a.responsible_id else (a.cage.owner if a.cage else None)
+        return {
+            "kind": "animal", "id": a.id, "code": a.external_id, "mark": a.mark,
+            "sex": a.sex.value if a.sex else None, "genotype": a.genotype,
+            "dob": a.dob.isoformat() if a.dob else None, "status": STATUS_LABEL.get(a.status, str(a.status)),
+            "age": calculate_age_display(a.dob, a.status_changed_at, a.status) if a.dob else None,
+            "position": _position(a.cage) if a.status == ALIVE else None,
+            "responsible": (owner.full_name or owner.username) if owner else None,
+            "color": owner.color if owner else None,
+        }
+
+    def parents_of(a: models.Animal, depth: int) -> List[dict]:
+        out = []
+        for text in (a.parent_1, a.parent_2):
+            if not (text or "").strip():
+                out.append({"kind": "unknown", "label": None})
+                continue
+            options = _parent_options(text)
+            found = [by_code[k] for k in options if k in by_code]
+            if len(options) == 1 and found:
+                n = node(found[0])
+                n["note"] = text.strip() if _code_key(text) != _code_key(found[0].external_id) or "(" in text else None
+                n["parents"] = parents_of(found[0], depth - 1) if depth > 1 else []
+                out.append(n)
+            elif len(options) > 1:
+                out.append({"kind": "uncertain", "label": text.strip(),
+                            "options": [node(f) for f in found]})
+            elif re.search(r"\d", text):
+                out.append({"kind": "unregistered", "label": text.strip()})
+            else:
+                out.append({"kind": "origin", "label": text.strip()})
+        return out
+
+    root_key = _code_key(root.external_id) if root.external_id else None
+    children = []
+    if root_key:
+        for a in animals:
+            if a.id != root.id and any(root_key in _parent_options(p) for p in (a.parent_1, a.parent_2) if p):
+                children.append(node(a))
+        children.sort(key=lambda n: (n["dob"] or "", n["code"] or ""))
+
+    me = node(root)
+    me["parents"] = parents_of(root, 2)
+    return {"animal": me, "children": children}

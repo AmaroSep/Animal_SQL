@@ -3,10 +3,11 @@ import { useNavigate } from 'react-router-dom';
 import CageModal from './components/CageModal';
 import StatisticsDashboard from './components/StatisticsDashboard';
 import AgeRiverView from './components/AgeRiverView';
-import { LayoutGrid, Database, Activity, RefreshCw, Plus, History, ChevronLeft, Skull, Trash2, BarChart3, Waves, X, Download, Upload, Home } from 'lucide-react';
+import { LayoutGrid, Database, Activity, RefreshCw, Plus, History, ChevronLeft, Skull, Trash2, BarChart3, Waves, X, Download, Upload, Home, GitBranch } from 'lucide-react';
 import { animalStatusLabel } from '../../utils/labels';
 import { useAuth } from '../../auth/AuthContext';
 import ColonyImportModal from './components/ColonyImportModal';
+import FamilyTreeModal from './components/FamilyTreeModal';
 import { exportColonyWorkbook } from '../../utils/colonyFormat';
 import { fetchColonyExport, fetchDirectory, fetchRacks, fetchRack, createAnimal, fetchHistory, fetchStatistics, updateAnimal, swapCagePositions } from '../../services/api';
 
@@ -196,6 +197,7 @@ export default function BioterioApp() {
 
   // Shared colony workbook (agreed lab format)
   const [showColonyImport, setShowColonyImport] = useState(false);
+  const [familyOf, setFamilyOf] = useState(undefined); // animal id, null = search, undefined = closed
   const [exportMenu, setExportMenu] = useState(false);
   const handleExportColony = async (scope) => {
     setExportMenu(false);
@@ -336,6 +338,12 @@ export default function BioterioApp() {
               </div>
             )}
           </div>
+
+          <button onClick={() => setFamilyOf(null)}
+            className="flex items-center gap-2 px-6 py-3 bg-white/5 text-white/40 hover:bg-violet-500 hover:text-white rounded-xl text-xs font-black uppercase tracking-widest transition-all border border-transparent">
+            <GitBranch size={16} />
+            Family Tree
+          </button>
 
           {isAdmin && (
           <button onClick={() => setShowColonyImport(true)}
@@ -785,7 +793,9 @@ export default function BioterioApp() {
         onAddAnimal={() => handleAddAnimalFromCage(selectedCage)}
         onEditAnimal={handleEditAnimal}
         onMergeStart={handleMergeStart}
+        onShowFamily={setFamilyOf}
       />
+      {familyOf !== undefined && <FamilyTreeModal animalId={familyOf} onClose={() => setFamilyOf(undefined)} />}
       {showColonyImport && (
         <ColonyImportModal directory={directory} onClose={() => setShowColonyImport(false)}
           onImported={() => { loadRackDetails(); loadStatistics(); }} />
