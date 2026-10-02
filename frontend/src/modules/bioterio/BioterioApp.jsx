@@ -560,6 +560,14 @@ export default function BioterioApp() {
                         {String.fromCharCode(64 + cage.column)}{cage.row}
                       </span>
                     )}
+
+                    {/* Cage card, under the position */}
+                    {(hasAnimals || cage.is_breeding_pair) && cage.card_id && (
+                      <span title={`Cage card: ${cage.card_id}`}
+                        className={`max-w-[90%] truncate px-1.5 mt-0.5 rounded text-[10px] font-mono font-bold border ${cage.is_breeding_pair ? 'text-pink-200/80 border-pink-400/30 bg-pink-500/10' : 'text-amber-100/80 border-amber-300/25 bg-amber-400/10'}`}>
+                        {cage.card_id}
+                      </span>
+                    )}
                   </button>
                 );
               })}
