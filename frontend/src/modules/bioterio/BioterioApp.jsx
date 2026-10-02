@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import CageModal from './components/CageModal';
 import StatisticsDashboard from './components/StatisticsDashboard';
@@ -62,6 +62,27 @@ export default function BioterioApp() {
   const { user, isAdmin, canEdit } = useAuth();
   const [directory, setDirectory] = useState([]);
   const [onlyMine, setOnlyMine] = useState(false);
+  // Fit the whole rack (10 rows) in the window height; remembered per browser
+  const [fitRack, setFitRack] = useState(() => { try { return localStorage.getItem('bioterio.fitRack') !== '0'; } catch { return true; } });
+  const [rackWidth, setRackWidth] = useState(null);
+  const gridRef = useRef(null);
+  useEffect(() => {
+    try { localStorage.setItem('bioterio.fitRack', fitRack ? '1' : '0'); } catch { /* private mode */ }
+    if (!fitRack) { setRackWidth(null); return undefined; }
+    // 7 columns × 10 rows of square cages: the width that makes 10 rows as tall as the window
+    // 10 cells + 9 gaps of 6px in the height; 7 cells + 6 gaps in the width
+    const update = () => {
+      const cell = (window.innerHeight - 24 - 9 * 6) / 10;
+      setRackWidth(Math.max(360, Math.floor(7 * cell + 6 * 6)));
+    };
+    update();
+    window.addEventListener('resize', update);
+    return () => window.removeEventListener('resize', update);
+  }, [fitRack]);
+  const showWholeRack = () => {
+    setFitRack(true);
+    setTimeout(() => gridRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50);
+  };
   // Statistics show the signed-in user's cages; admins can switch to the whole colony
   const [statsScope, setStatsScope] = useState('mine');
   useEffect(() => { fetchDirectory().then(setDirectory).catch(() => {}); }, []);
@@ -473,8 +494,13 @@ export default function BioterioApp() {
                       {u.full_name || u.username} · {counts[u.id]}
                     </span>
                   ))}
+                  <button onClick={() => (fitRack ? setFitRack(false) : showWholeRack())}
+                    title="Size the rack so all 10 rows fit in the window"
+                    className={`ml-auto px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest border ${fitRack ? 'border-biotech-accent text-biotech-accent bg-biotech-accent/10' : 'border-white/10 text-white/40 hover:text-white'}`}>
+                    {fitRack ? 'Fit to screen: on' : 'Fit to screen'}
+                  </button>
                   <button onClick={() => setOnlyMine(!onlyMine)}
-                    className={`ml-auto px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest border ${onlyMine ? 'border-biotech-accent text-biotech-accent bg-biotech-accent/10' : 'border-white/10 text-white/40 hover:text-white'}`}>
+                    className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest border ${onlyMine ? 'border-biotech-accent text-biotech-accent bg-biotech-accent/10' : 'border-white/10 text-white/40 hover:text-white'}`}>
                     {onlyMine ? 'Showing only my cages' : 'Show only my cages'}
                   </button>
                   {!user?.color && <span className="w-full text-[10px] text-amber-200/70">Pick your colour in the account menu (bottom right) so your cages are easy to spot.</span>}
@@ -483,7 +509,8 @@ export default function BioterioApp() {
             })()}
 
             {/* Grid 10x7 */}
-            <div className="grid grid-cols-7 gap-1.5 perspective-1000">
+            <div ref={gridRef} className="grid grid-cols-7 gap-1.5 perspective-1000 mx-auto scroll-mt-3"
+              style={rackWidth ? { maxWidth: `${rackWidth}px` } : undefined}>
               {rackData?.cages.sort((a,b) => (a.row - b.row) || (a.column - b.column)).map(cage => {
                 const hasAnimals = cage.animals?.length > 0;
                 const allAlive = cage.animals?.every(a => a.status === 'Vivo');
