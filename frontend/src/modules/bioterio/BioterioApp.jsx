@@ -62,8 +62,8 @@ export default function BioterioApp() {
   const { user, isAdmin, canEdit } = useAuth();
   const [directory, setDirectory] = useState([]);
   const [onlyMine, setOnlyMine] = useState(false);
-  // Fit the whole rack (10 rows) in the window height; remembered per browser
-  const [fitRack, setFitRack] = useState(() => { try { return localStorage.getItem('bioterio.fitRack') !== '0'; } catch { return true; } });
+  // Fit the whole rack (10 rows) in the window height: off unless the user turns it on (remembered per browser)
+  const [fitRack, setFitRack] = useState(() => { try { return localStorage.getItem('bioterio.fitRack') === '1'; } catch { return false; } });
   const [rackWidth, setRackWidth] = useState(null);
   const gridRef = useRef(null);
   useEffect(() => {
