@@ -1,12 +1,14 @@
 import * as XLSX from 'xlsx';
 
 // The lab's shared colony workbook ("BCM Colony" layout):
-//   Breeders  — Wean Date | BCM Cage | Animal Code | ID | DOB | Sex | Genotype | Age (W) | Age (M) | Parents | Parents | Responsible | Elimination Reason
+//   Breeders  — Cage Position | BCM Cage | Animal Code | ID | DOB | Sex | Genotype | Age (W) | Age (M) | Parents | Parents | Responsible | Elimination Reason | Wean Date | Paired | Litter DOB
+//               (columns line up with Colony's; Wean Date is the current litter's, its birth date + 21 days.
+//                Older sheets start with Wean Date instead of Cage Position and have no Paired / Litter DOB)
 //   Colony    — Cage Position | BCM Cage | Animal Code | ID | DOB | Sex | Genotype | Age | Status | Parents | Parents2 | Responsible | Elimination Reason
 // A cage's position and card are written on its first animal's row only.
 
 const COLONY_HEADER = ['Cage Position', 'BCM Cage', 'Animal Code', 'ID', 'DOB', 'Sex', 'Genotype', 'Age', 'Status', 'Parents', 'Parents2', 'Responsible', 'Elimination Reason'];
-const BREEDERS_HEADER = ['Wean Date', 'BCM Cage', 'Animal Code', 'ID', 'DOB', 'Sex', 'Genotype', 'Age (W)', 'Age (M)', 'Parents', 'Parents', 'Responsible', 'Elimination Reason'];
+const BREEDERS_HEADER = ['Cage Position', 'BCM Cage', 'Animal Code', 'ID', 'DOB', 'Sex', 'Genotype', 'Age (W)', 'Age (M)', 'Parents', 'Parents', 'Responsible', 'Elimination Reason', 'Wean Date', 'Paired', 'Litter DOB'];
 
 const norm = (v) => String(v ?? '').trim().toLowerCase();
 const clean = (v) => {
@@ -43,7 +45,7 @@ export function parseColonyWorkbook(arrayBuffer) {
   const wb = XLSX.read(arrayBuffer, { type: 'array', cellDates: true });
   const rows = [];
   const warnings = [];
-  const breeders = new Map(); // animal code -> { wean_date }
+  const breeders = new Map(); // animal code -> { wean_date, breeding_since, litter_dob }
 
   wb.SheetNames.forEach((name) => {
     const grid = XLSX.utils.sheet_to_json(wb.Sheets[name], { header: 1, raw: true, defval: null });
@@ -53,7 +55,8 @@ export function parseColonyWorkbook(arrayBuffer) {
     grid.forEach((line, i) => {
       const cells = line.map(norm);
       if (cells.includes('animal code') && (cells.includes('cage position') || cells.includes('wean date'))) {
-        section = cells.includes('cage position') ? 'colony' : 'breeders';
+        // Breeders now also have a Cage Position column: Wean Date is what tells them apart
+        section = cells.includes('wean date') ? 'breeders' : 'colony';
         cols = {};
         cells.forEach((c, j) => {
           const key = c === 'parents' && cols.parents !== undefined ? 'parents2' : c;
@@ -68,7 +71,7 @@ export function parseColonyWorkbook(arrayBuffer) {
       const mark = clean(get('id'));
       if (!code && !mark && !clean(get('dob'))) return; // blank or title row
       if (section === 'breeders') {
-        if (code) breeders.set(code, { wean_date: toISO(get('wean date')) });
+        if (code) breeders.set(code, { wean_date: toISO(get('wean date')), breeding_since: toISO(get('paired')), litter_dob: toISO(get('litter dob')) });
         return;
       }
       if (clean(get('cage position'))) {
@@ -88,10 +91,10 @@ export function parseColonyWorkbook(arrayBuffer) {
       });
     });
   });
-  // Breeders section only flags breeding cages and adds the wean date
+  // Breeders section only flags breeding cages and adds their dates
   rows.forEach((r) => {
     const b = r.animal_code && breeders.get(r.animal_code);
-    if (b) { r.breeder = true; r.wean_date = b.wean_date; }
+    if (b) Object.assign(r, { breeder: true }, b);
   });
   return { rows, warnings };
 }
@@ -109,8 +112,9 @@ export function exportColonyWorkbook(animals, title = 'Colony') {
 
   const aoa = [[`${title} — exported ${new Date().toLocaleDateString()}`], [], ['Breeders'], BREEDERS_HEADER];
   alive.filter((a) => a.breeding).forEach((a) => aoa.push([
-    date(a.wean_date), a.cage_card || '', a.animal_code || '', a.mark || '', date(a.dob), a.sex || '', a.genotype || '',
+    a.position || '', a.cage_card || '', a.animal_code || '', a.mark || '', date(a.dob), a.sex || '', a.genotype || '',
     a.age_weeks ?? '', a.age_months ?? '', a.parent_1 || '', a.parent_2 || '', a.responsible || '', a.elimination_reason || '',
+    date(a.wean_due || a.wean_date), date(a.breeding_since), date(a.litter_dob),
   ]));
   aoa.push([], ['Colony'], COLONY_HEADER);
   let lastCage = null;
@@ -129,7 +133,7 @@ export function exportColonyWorkbook(animals, title = 'Colony') {
       [a.elimination_reason, a.status_date].filter(Boolean).join(' · ')]));
   }
   const sheet = XLSX.utils.aoa_to_sheet(aoa, { cellDates: true, dateNF: 'yyyy-mm-dd' });
-  sheet['!cols'] = [14, 16, 14, 8, 12, 6, 22, 8, 12, 14, 14, 18, 40].map((wch) => ({ wch }));
+  sheet['!cols'] = [14, 16, 14, 8, 12, 6, 22, 8, 12, 14, 14, 18, 40, 12, 12, 12].map((wch) => ({ wch }));
   const book = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(book, sheet, title.slice(0, 31));
   XLSX.writeFile(book, `${title.replace(/\s+/g, '_')}_${new Date().toISOString().slice(0, 10)}.xlsx`);

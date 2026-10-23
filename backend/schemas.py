@@ -62,6 +62,8 @@ class CageBase(BaseModel):
     is_breeding_pair: bool = False
     cage_number: Optional[int] = None
     card_id: Optional[str] = None
+    breeding_since: Optional[date] = None
+    litter_dob: Optional[date] = None
 
 class CageOwner(BaseModel):
     id: int
@@ -85,6 +87,12 @@ class Cage(CageBase):
 
 class CageUpdate(BaseModel):
     is_breeding_pair: bool
+
+class CageBreedingDates(BaseModel):
+    # Only the fields sent are changed (null clears)
+    breeding_since: Optional[date] = None
+    litter_dob: Optional[date] = None
+    weaned: bool = False                # the litter was weaned today: record it and clear the litter
 
 class CageCardUpdate(BaseModel):
     card_id: Optional[str] = None
@@ -138,6 +146,7 @@ class BreedingCreate(BaseModel):
     animal_ids: List[int]
     target_cage_id: int
     type: str
+    breeding_since: Optional[date] = None   # defaults to today
 
 class BreedingEnd(BaseModel):
     target_option: str
@@ -642,6 +651,8 @@ class ColonyRow(BaseModel):
     elimination_reason: Optional[str] = None
     wean_date: Optional[date] = None
     breeder: bool = False
+    breeding_since: Optional[date] = None   # Breeders section: pairing date
+    litter_dob: Optional[date] = None       # Breeders section: current litter's birth date
     notes: Optional[str] = None
 
 class ColonyImport(BaseModel):

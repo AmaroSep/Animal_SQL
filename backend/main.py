@@ -46,6 +46,9 @@ def run_migrations():
     Uses IF NOT EXISTS so it's always safe to run on existing DBs.
     """
     migrations = [
+        # v10: breeding cages remember when they were set up and their current litter
+        "ALTER TABLE cages ADD COLUMN IF NOT EXISTS breeding_since DATE",
+        "ALTER TABLE cages ADD COLUMN IF NOT EXISTS litter_dob DATE",
         # v2: genotype validation tracking on animals
         "ALTER TABLE animals ADD COLUMN IF NOT EXISTS genotype_validated BOOLEAN DEFAULT FALSE",
         "ALTER TABLE animals ADD COLUMN IF NOT EXISTS genotype_validated_at TIMESTAMP",
@@ -240,8 +243,11 @@ def update_cage_breeding_status(cage_id: int, status_update: schemas.CageUpdate,
         raise HTTPException(status_code=404, detail="Cage not found")
     check_cage(db, acting_user(request, db), db_cage, claim=status_update.is_breeding_pair)
 
+    if status_update.is_breeding_pair and not db_cage.is_breeding_pair:
+        db_cage.breeding_since = date.today()
     db_cage.is_breeding_pair = status_update.is_breeding_pair
     if not db_cage.is_breeding_pair:
+        db_cage.breeding_since = db_cage.litter_dob = None
         release_if_empty(db, db_cage)
     try:
         db.commit()
@@ -300,6 +306,34 @@ def update_cage_card(cage_id: int, update: schemas.CageCardUpdate, request: Requ
         raise HTTPException(status_code=404, detail="Cage not found")
     check_cage(db, acting_user(request, db), db_cage)
     db_cage.card_id = (update.card_id or "").strip() or None
+    db.commit()
+    db.refresh(db_cage)
+    db_cage.animals = [a for a in db_cage.animals if a.status == models.AnimalStatus.ALIVE]
+    for animal in db_cage.animals:
+        animal.age_display = calculate_age_display(animal.dob, animal.status_changed_at, animal.status)
+    return db_cage
+
+@app.patch("/cages/{cage_id}/breeding_dates", response_model=schemas.Cage)
+def update_cage_breeding_dates(cage_id: int, update: schemas.CageBreedingDates, request: Request, db: Session = Depends(get_db)):
+    """Pairing date and current litter of a breeding cage. With weaned, the litter's
+    wean date is recorded on the breeders and the cage is ready for the next litter."""
+    db_cage = db.query(models.Cage).filter(models.Cage.id == cage_id).first()
+    if not db_cage:
+        raise HTTPException(status_code=404, detail="Cage not found")
+    check_cage(db, acting_user(request, db), db_cage)
+    if not db_cage.is_breeding_pair:
+        raise HTTPException(status_code=400, detail="Only breeding cages have pairing and litter dates")
+    if "breeding_since" in update.model_fields_set:
+        db_cage.breeding_since = update.breeding_since
+    if "litter_dob" in update.model_fields_set:
+        if update.litter_dob and update.litter_dob > date.today():
+            raise HTTPException(status_code=400, detail="The litter's birth date cannot be in the future")
+        db_cage.litter_dob = update.litter_dob
+    if update.weaned:
+        for animal in db_cage.animals:
+            if animal.status == models.AnimalStatus.ALIVE:
+                animal.wean_date = date.today()
+        db_cage.litter_dob = None
     db.commit()
     db.refresh(db_cage)
     db_cage.animals = [a for a in db_cage.animals if a.status == models.AnimalStatus.ALIVE]
@@ -551,8 +585,10 @@ def create_breeding_group(breeding: schemas.BreedingCreate, request: Request, db
             check_animal(db, user, animal)
     check_cage(db, user, target_cage, claim=True)
 
-    # 2. Mark cage as breeding
+    # 2. Mark cage as breeding, from the pairing date (today unless given)
     target_cage.is_breeding_pair = True
+    target_cage.breeding_since = breeding.breeding_since or date.today()
+    target_cage.litter_dob = None
     
     # 3. Move animals
     for animal_id in breeding.animal_ids:
@@ -596,6 +632,7 @@ def end_breeding_session(cage_id: int, end_data: schemas.BreedingEnd, request: R
 
     # 1. Unmark cage
     cage.is_breeding_pair = False
+    cage.breeding_since = cage.litter_dob = None
     
     # 2. Relocate animals (Only live ones)
     animals = db.query(models.Animal).filter(
@@ -652,7 +689,10 @@ def merge_cages(merge_data: schemas.CageMerge, request: Request, db: Session = D
     # A breeding group moved to another cage stays a breeding group
     if source_cage.is_breeding_pair:
         dest_cage.is_breeding_pair = True
+        dest_cage.breeding_since = dest_cage.breeding_since or source_cage.breeding_since
+        dest_cage.litter_dob = dest_cage.litter_dob or source_cage.litter_dob
         source_cage.is_breeding_pair = False
+        source_cage.breeding_since = source_cage.litter_dob = None
     release_if_empty(db, source_cage)
 
     try:

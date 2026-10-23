@@ -49,6 +49,9 @@ export const updateCageBreedingStatus = (cageId, isBreedingPair) =>
   request(`/cages/${cageId}/breeding_status`, json('PATCH', { is_breeding_pair: isBreedingPair }));
 export const updateCageCard = (cageId, cardId) =>
   request(`/cages/${cageId}/card`, json('PATCH', { card_id: cardId }));
+// Send only what changes: { breeding_since }, { litter_dob } (null clears) or { weaned: true }
+export const updateCageBreedingDates = (cageId, data) =>
+  request(`/cages/${cageId}/breeding_dates`, json('PATCH', data));
 export const updateCageNumber = (cageId, cageNumber) =>
   request(`/cages/${cageId}/number`, json('PATCH', { cage_number: cageNumber }));
 export const moveCage = (cageId, rackId, row, column) =>

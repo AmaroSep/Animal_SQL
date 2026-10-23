@@ -5,7 +5,7 @@ Age, Status, Parents, Parents2, Responsible, Elimination Reason; plus a
 works with plain rows.
 """
 import re
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Dict, List, Optional, Tuple
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -25,6 +25,7 @@ STATUS_WORDS = {
     "eliminated": ELIMINATED, "eliminado": ELIMINATED, "euthanized": ELIMINATED, "sacrificed": ELIMINATED,
 }
 STATUS_LABEL = {ALIVE: "Alive", DEAD: "Dead", ELIMINATED: "Eliminated"}
+WEAN_AGE_DAYS = 21
 
 
 def _position(cage: Optional[models.Cage]):
@@ -67,6 +68,9 @@ def export_animals(request: Request, scope: str = "mine", db: Session = Depends(
             "cage_card": (a.last_cage_card or (cage.card_id if cage else None)) if a.status != ALIVE
                          else (cage.card_id if cage else None), "cage_number": cage.cage_number if cage else None,
             "breeding": bool(cage and cage.is_breeding_pair),
+            "breeding_since": cage.breeding_since.isoformat() if cage and cage.breeding_since else None,
+            "litter_dob": cage.litter_dob.isoformat() if cage and cage.litter_dob else None,
+            "wean_due": (cage.litter_dob + timedelta(days=WEAN_AGE_DAYS)).isoformat() if cage and cage.litter_dob else None,
             "responsible": (owner.full_name or owner.username) if owner else None,
             "responsible_username": owner.username if owner else None,
         })
@@ -153,6 +157,11 @@ def import_rows(data: schemas.ColonyImport, request: Request, dry_run: bool = Tr
                 cage.card_id = r.cage_card
             if r.breeder:
                 cage.is_breeding_pair = True
+                cage.breeding_since = r.breeding_since or cage.breeding_since
+                # Breeders' "Wean Date" is the litter's: a date still ahead gives the litter's birth
+                litter = r.litter_dob or (r.wean_date - timedelta(days=WEAN_AGE_DAYS)
+                                          if r.wean_date and r.wean_date >= date.today() else None)
+                cage.litter_dob = litter or cage.litter_dob
             cages_used[label] = r.cage_card
 
         animal = None

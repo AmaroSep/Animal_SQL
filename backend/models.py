@@ -54,6 +54,8 @@ class Cage(Base):
     is_breeding_pair = Column(Boolean, default=False)
     cage_number = Column(Integer, nullable=True)
     card_id = Column(String, nullable=True)            # facility cage card (e.g. CM002, 1176615)
+    breeding_since = Column(Date, nullable=True)       # day the breeding group was set up
+    litter_dob = Column(Date, nullable=True)           # current litter's birth date; pups are weaned at 21 days
     # Responsible user: only they (or an admin) may change the cage and its animals.
     # Empty cages have none; whoever puts animals in one takes it (see ownership.py).
     owner_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)

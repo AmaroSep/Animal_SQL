@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { X, Skull, Trash2, Plus, Pencil, HeartOff, RefreshCw, Hash, GitBranch, Move } from 'lucide-react';
-import { updateAnimalStatus, endBreedingSession, updateCageNumber, updateCageCard, setCageOwner, moveCage } from '../../../services/api';
+import { updateAnimalStatus, endBreedingSession, updateCageNumber, updateCageCard, setCageOwner, moveCage, updateCageBreedingDates } from '../../../services/api';
+import { weanBadge, isoDate } from '../../../utils/wean';
 import { useAuth } from '../../../auth/AuthContext';
 import { animalStatusLabel } from '../../../utils/labels';
 
@@ -15,6 +16,8 @@ export default function CageModal({ cage, racks = [], canModify = true, director
   const [newCageId, setNewCageId] = useState('');
   const [cageNumberInput, setCageNumberInput] = useState('');
   const [editingCageNumber, setEditingCageNumber] = useState(false);
+  const [pairedOn, setPairedOn] = useState('');
+  const [litterOn, setLitterOn] = useState('');
 
   // The modal stays mounted between cages: reset per-cage dialogs when the cage changes
   useEffect(() => {
@@ -24,7 +27,9 @@ export default function CageModal({ cage, racks = [], canModify = true, director
     setEditingCageNumber(false);
     setShowMove(false);
     setMoveTo(null);
-  }, [cage?.id]);
+    setPairedOn(cage?.breeding_since || '');
+    setLitterOn(cage?.litter_dob || '');
+  }, [cage?.id, cage?.breeding_since, cage?.litter_dob]);
 
   if (!cage) return null;
 
@@ -109,6 +114,25 @@ export default function CageModal({ cage, racks = [], canModify = true, director
     } catch (err) {
       console.error(err);
       alert('Error updating breeding status');
+    }
+  };
+
+  const saveBreedingDates = async () => {
+    try {
+      await updateCageBreedingDates(cage.id, { breeding_since: pairedOn || null, litter_dob: litterOn || null });
+      onUpdate();
+    } catch (err) {
+      alert(err.message);
+    }
+  };
+
+  const markWeaned = async () => {
+    if (!window.confirm('Pups weaned today? The wean date is recorded on the breeders and the cage waits for its next litter.')) return;
+    try {
+      await updateCageBreedingDates(cage.id, { weaned: true });
+      onUpdate();
+    } catch (err) {
+      alert(err.message);
     }
   };
 
@@ -257,6 +281,40 @@ export default function CageModal({ cage, racks = [], canModify = true, director
           </div>
         </div>
         
+        {/* Breeding dates: pairing and current litter (pups are weaned at 21 days) */}
+        {cage.is_breeding_pair && (() => {
+          const wean = weanBadge({ ...cage, litter_dob: litterOn || null });
+          const changed = pairedOn !== (cage.breeding_since || '') || litterOn !== (cage.litter_dob || '');
+          const field = 'bg-black/40 border border-white/10 rounded-lg px-2 py-1 text-white outline-none focus:border-pink-400 disabled:opacity-50 [color-scheme:dark]';
+          return (
+            <div className="flex flex-wrap items-center gap-x-6 gap-y-2 px-8 py-3 bg-pink-500/5 border-b border-pink-500/20 text-[10px] font-mono uppercase tracking-widest text-pink-200/70">
+              <label className="flex items-center gap-2">
+                Paired
+                <input type="date" value={pairedOn} max={isoDate(new Date())} disabled={!canModify}
+                  onChange={e => setPairedOn(e.target.value)} className={field} />
+              </label>
+              <label className="flex items-center gap-2">
+                Litter born
+                <input type="date" value={litterOn} max={isoDate(new Date())} disabled={!canModify}
+                  onChange={e => setLitterOn(e.target.value)} className={field} />
+              </label>
+              {changed && canModify && (
+                <button onClick={saveBreedingDates} className="px-3 py-1 rounded-lg bg-pink-500 text-white font-black hover:scale-105 transition-all">Save</button>
+              )}
+              {wean ? (
+                <span className={`px-2 py-1 rounded-lg font-black normal-case tracking-normal text-xs ${wean.level === 'due' ? 'bg-red-500 text-white' : wean.level === 'soon' ? 'bg-amber-400 text-black' : 'bg-pink-500/20 text-pink-100'}`}>
+                  Wean on {isoDate(wean.due)} · {wean.daysLeft > 0 ? `in ${wean.daysLeft} days` : wean.daysLeft === 0 ? 'today' : `${-wean.daysLeft} days late`}
+                </span>
+              ) : (
+                <span className="normal-case tracking-normal text-white/30">No litter yet</span>
+              )}
+              {cage.litter_dob && !changed && canModify && (
+                <button onClick={markWeaned} className="ml-auto px-3 py-1 rounded-lg border border-pink-400/40 text-pink-200 font-black hover:bg-pink-500 hover:text-white transition-all">Pups weaned</button>
+              )}
+            </div>
+          );
+        })()}
+
         {!canModify && (
           <div className="px-8 py-3 bg-white/5 border-b border-white/10 text-xs text-white/50">
             View only — {cage.owner ? `this cage belongs to ${cage.owner.full_name || cage.owner.username}` : 'this cage has no responsible person yet; an administrator can assign it'}.

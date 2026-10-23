@@ -9,6 +9,7 @@ import { useAuth } from '../../auth/AuthContext';
 import ColonyImportModal from './components/ColonyImportModal';
 import FamilyTreeModal from './components/FamilyTreeModal';
 import { exportColonyWorkbook } from '../../utils/colonyFormat';
+import { weanBadge, daysSince, isoDate } from '../../utils/wean';
 import { fetchColonyExport, fetchDirectory, fetchRacks, fetchRack, createAnimal, fetchHistory, fetchStatistics, updateAnimal, swapCagePositions, fetchAnimalCodes } from '../../services/api';
 
 export default function BioterioApp() {
@@ -52,7 +53,8 @@ export default function BioterioApp() {
   const [breedingData, setBreedingData] = useState({
     type: 'Pair',
     animalIds: [],
-    targetCageId: null
+    targetCageId: null,
+    pairingDate: isoDate(new Date())
   });
   const [breedingSearch, setBreedingSearch] = useState('');
   const [breedingRackId, setBreedingRackId] = useState(null);
@@ -389,7 +391,7 @@ export default function BioterioApp() {
 
           <button 
             onClick={() => {
-              setBreedingData({ type: 'Pair', animalIds: [], targetCageId: null });
+              setBreedingData({ type: 'Pair', animalIds: [], targetCageId: null, pairingDate: isoDate(new Date()) });
               setBreedingStep(1);
               setBreedingRackId(selectedRackId);
               // Refresh occupancy of every rack so the target-cage picker is current
@@ -529,6 +531,8 @@ export default function BioterioApp() {
                 const allAlive = cage.animals?.every(a => a.status === 'Vivo');
                 const ownerColor = cage.owner ? (cage.owner.color || '#64748b') : null;
                 const dimmed = onlyMine && cage.owner && !isMine(cage);
+                const wean = weanBadge(cage);
+                const pairedDays = cage.is_breeding_pair && !wean ? daysSince(cage.breeding_since) : null;
 
                 return (
                   <button
@@ -606,6 +610,22 @@ export default function BioterioApp() {
                       <span title={`Cage card: ${cage.card_id}`}
                         className={`max-w-[90%] truncate px-1.5 mt-0.5 rounded text-[10px] font-mono font-bold border ${cage.is_breeding_pair ? 'text-pink-200/80 border-pink-400/30 bg-pink-500/10' : 'text-amber-100/80 border-amber-300/25 bg-amber-400/10'}`}>
                         {cage.card_id}
+                      </span>
+                    )}
+
+                    {/* Breeding: countdown to weaning the litter, or days since pairing while there is none */}
+                    {wean && (
+                      <span title={`Litter born ${cage.litter_dob} · wean on ${isoDate(wean.due)}`}
+                        className={`px-1.5 mt-0.5 rounded text-[10px] font-black whitespace-nowrap ${
+                          wean.level === 'due' ? 'bg-red-500 text-white animate-pulse'
+                            : wean.level === 'soon' ? 'bg-amber-400 text-black'
+                            : 'bg-pink-500/25 text-pink-200'}`}>
+                        {wean.text}
+                      </span>
+                    )}
+                    {pairedDays != null && (
+                      <span title={`Paired on ${cage.breeding_since}`} className="mt-0.5 text-[10px] font-mono text-white/35 whitespace-nowrap">
+                        Paired {pairedDays}d
                       </span>
                     )}
                   </button>
@@ -1044,6 +1064,13 @@ export default function BioterioApp() {
                             ? <>Target: <span className="text-pink-300 font-black">{target.r.name} · {String.fromCharCode(64 + target.c.column)}{target.c.row}{target.c.cage_number != null ? ` (#${target.c.cage_number})` : ''}</span></>
                             : 'Choose a rack, then an empty position.'}
                         </p>
+                        {/* 3. Pairing date: starts the cage's breeding clock */}
+                        <label className="flex flex-wrap items-center gap-3 text-xs font-mono text-white/50">
+                          Pairing date
+                          <input type="date" value={breedingData.pairingDate} max={isoDate(new Date())}
+                            onChange={e => setBreedingData({ ...breedingData, pairingDate: e.target.value })}
+                            className="bg-black/40 border border-white/10 rounded-lg px-3 py-1.5 text-white outline-none focus:border-pink-400 [color-scheme:dark]" />
+                        </label>
                       </>
                     );
                   })()}
@@ -1078,7 +1105,8 @@ export default function BioterioApp() {
                       await createBreedingGroup({
                         animal_ids: breedingData.animalIds,
                         target_cage_id: breedingData.targetCageId,
-                        type: breedingData.type
+                        type: breedingData.type,
+                        breeding_since: breedingData.pairingDate || null
                       });
                       alert('Breeding group established!');
                       setShowBreedingWizard(false);
