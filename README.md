@@ -1,6 +1,6 @@
-# Bioterio Management System
+# Lab Management System
 
-A web-based animal colony management platform for research laboratories. Track animals across racks and cages, manage breeding pairs, visualize inventory statistics, and import/export colony data via CSV.
+A web platform for research laboratories: the animal colony (Bioterio) and the lab's sample storage (EM grids, the LN2 tank and the -80 °C freezers), behind one sign-in, with per-user responsibility and a full audit trail.
 
 ![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)
 ![Docker](https://img.shields.io/badge/Docker-required-blue)
@@ -9,16 +9,42 @@ A web-based animal colony management platform for research laboratories. Track a
 
 ---
 
-## Features
+## Modules
 
-- **Visual rack/cage grid** — 10×7 grid per rack, color-coded by occupancy and breeding status
-- **Animal registration** — ID, sex, date of birth, ear mark, genotype
-- **Status tracking** — Alive / Dead / Eliminated with elimination reason log
-- **Breeding wizard** — 3-step wizard to create Pair (1M+1F) or Trio (1M+2F) breeding groups
-- **Statistics dashboard** — Live inventory breakdown by genotype, sex, and age range (0–3m, 3–6m, 6–9m, >9m)
-- **Animal history** — Full log of decommissioned animals
-- **Cage merge** — Relocate all animals from one cage to another in one action
-- **CSV import/export** — Bulk load or download full colony data
+### Bioterio — animal colony
+
+- **Rack grid** — 10×7 grid per rack. Each cage shows its number, animal count, position (e.g. `D4`), facility cage card and the responsible user's colour; breeding cages are pink.
+- **Animals** — sex, date of birth, ear mark, genotype, Animal Code, origin cage, notes and parents (Parent 1 / Parent 2 suggest existing Animal Codes). Status Alive / Dead / Eliminated, with the reason and date.
+- **Breeding** — a 3-step wizard sets up a Pair (1M+1F) or Trio (1M+2F) in a free cage, with its pairing date. Ending the breeding sends the animals back to their home cages or to a new one.
+- **Litters and weaning** — each breeding cage records its current litter's birth date. The rack shows a countdown to weaning at 21 days (`Wean 9d`; amber within 3 days, red when due or late), or the days since pairing while there is no litter. *Pups weaned* records the wean date on the breeders and clears the litter.
+- **Cage handling** — drag a cage onto another position to swap them, move a whole cage (animals, card, responsible user, breeding state) to a free position in any rack, merge two cages, hand cages over to another user. *Fit to screen* shows the whole rack at once.
+- **Family tree** — an animal's parents and grandparents and its offspring, linked by Animal Code.
+- **Statistics** — live animals by genotype, sex and age range (0–3m, 3–6m, 6–9m, >9m), and an age "river" view. Your cages by default; admins can switch to the whole colony.
+- **History** — dead and eliminated animals, which keep their responsible user and last cage card.
+- **Excel import / export** in the lab's shared colony workbook layout:
+  - *Breeders* — Cage Position, BCM Cage, Animal Code, ID, DOB, Sex, Genotype, Age (W), Age (M), Parents ×2, Responsible, Elimination Reason, Wean Date, Paired, Litter DOB
+  - *Colony* — Cage Position, BCM Cage, Animal Code, ID, DOB, Sex, Genotype, Age, Status, Parents ×2, Responsible, Elimination Reason
+
+  Both sections use the same columns up to Elimination Reason, so they line up in one sheet. The import (admins) shows a dry run row by row before saving, and also reads older sheets without Cage Position / Paired / Litter DOB in Breeders.
+
+### EM Grids
+
+Grid boxes (Quantifoil and EMS layouts drawn as the physical box), positions, samples and grid types; staining steps (washes, stain, times, drying) and preparation conditions. Status Stored / Imaged / Used / Discarded — grids keep their slot until the record is deleted. Excel export.
+
+### LN2 tank
+
+Racks, boxes and vials in the liquid nitrogen tank: freeze (batch), thaw/remove and restore vials, cells per vial, passage comments, master stocks that must not be thawed without asking, box labels and use restrictions. The lab's existing tank spreadsheets can be loaded with `scripts/import_ln2_excel.py`.
+
+### -80 °C freezers
+
+Configurable hierarchy: freezer → compartment → rack (levels × depth) → box → tubes. **Sample types** (CSF, brain, …) define their own fields — text, number, date, choice, a link to an animal, or a formula — and fields marked *restricted* (clinical data) are shown only to admins and users with restricted access. Aliquot numbers, reserved tubes, used/removed tubes with date and user. Excel import (one sample type per file, used-up aliquots imported as Used) and inventory export.
+
+### Users and access
+
+- Sign-in with a session cookie; repeated failed attempts are locked out for a while.
+- Roles: **admin** (everything, including user management), **editor** (create and change records), **viewer** (read only).
+- In the Bioterio, a cage belongs to its responsible user: only they or an admin can change it and its animals. An empty cage is taken by whoever puts animals in it, and released when it is empty again.
+- EM grids, LN2 vials and -80 tubes show who created and last edited them. Admins see the users and the log of every change under account menu → *Users & activity*.
 
 ---
 
@@ -26,146 +52,113 @@ A web-based animal colony management platform for research laboratories. Track a
 
 | Layer | Technology |
 |-------|-----------|
-| Backend | FastAPI + SQLAlchemy + PostgreSQL |
-| Frontend | React 18 + Vite + Tailwind CSS |
-| Deployment | Docker Compose |
+| Backend | FastAPI + SQLAlchemy + PostgreSQL 15 |
+| Frontend | React 18 + Vite + Tailwind CSS (SheetJS for Excel) |
+| Deployment | Docker Compose; Caddy in production |
 
 ---
 
-## Prerequisites
+## Quick Start (development)
 
-- [Docker Desktop](https://www.docker.com/products/docker-desktop/) (Mac/Windows) **or** Docker Engine + Docker Compose v2 (Linux)
-
-No Python or Node.js installation required — everything runs inside containers.
-
----
-
-## Quick Start
+Requires [Docker Desktop](https://www.docker.com/products/docker-desktop/) (Mac/Windows) or Docker Engine + Compose v2 (Linux). No Python or Node.js installation is needed.
 
 ```bash
 # 1. Clone the repository
 git clone https://github.com/AmaroSep/Animal_SQL.git
 cd Animal_SQL
 
-# 2. Configure environment variables
+# 2. Configure environment variables (set a secure POSTGRES_PASSWORD, also in DATABASE_URL)
 cp .env.example .env
-# Edit .env and set a secure POSTGRES_PASSWORD
 
 # 3. Start all services
 docker compose up --build
 
-# 4. Open the application
-# Frontend:  http://localhost:5173
-# API docs:  http://localhost:8000/docs
+# 4. Create the first administrator (asks for the password)
+docker exec -it bioterio_backend python manage_users.py create <username> --role admin
+
+# 5. Open the application
+#   Frontend:  http://localhost:5173
+#   API docs:  http://localhost:8000/docs
 ```
 
-On first startup, the backend automatically creates the database tables and initializes the rack/cage structure (see [Rack Configuration](#rack-configuration) below).
+The development stack mounts the source code into the containers, so backend and frontend changes reload on their own.
+
+On startup the backend creates the tables, adds any new columns to an existing database (safe to run on every start, data is kept) and, on an empty database, creates the racks and cages (see [Rack configuration](#rack-configuration)), the LN2 tank structure and the default -80 sample types.
+
+### User accounts
+
+```bash
+docker exec -it bioterio_backend python manage_users.py create <username> --role admin|editor|viewer
+docker exec -it bioterio_backend python manage_users.py reset-password <username>
+docker exec -it bioterio_backend python manage_users.py list
+docker exec -it bioterio_backend python manage_users.py assign-cages <username>
+```
+
+Passwords are typed at a hidden prompt (at least 10 characters). Admins can also manage users from the app (account menu → *Users & activity*).
 
 ---
 
-## Rack Configuration
+## Production
 
-The system ships pre-configured for **3 racks** (named `RACK 3`, `RACK 4`, `RACK 5`), each with a **10-row × 7-column** grid (70 cages per rack, 210 total).
+`docker-compose.prod.yml` runs the compiled frontend behind Caddy (`web`), the API without auto-reload, PostgreSQL, nightly `pg_dump` backups (kept 30 days) and, optionally, a Cloudflare Tunnel. Only `web` publishes a port.
 
-### Changing rack names or count
+```bash
+./deploy/install.sh    # first install or update: creates .env.prod if missing, builds and starts
+```
 
-Edit `backend/main.py`, lines 49–58 — the `startup_event` function:
+Updates keep the data: copy the new code to the server and run `./deploy/install.sh` again (or `docker compose -f docker-compose.prod.yml --env-file .env.prod up -d --build backend web`). Access through Tailscale or Cloudflare Tunnel, moving data from a development copy, backups and restores are described in [deploy/README.md](deploy/README.md).
+
+---
+
+## Rack configuration
+
+The Bioterio starts with **3 racks** (`RACK 3`, `RACK 4`, `RACK 5`), each a **10-row × 7-column** grid. To change their names, count or size, edit the seed in `startup_event` in `backend/main.py`:
 
 ```python
-# backend/main.py  (lines 49–58)
 if db.query(models.Rack).count() == 0:
     for i in [3, 4, 5]:                        # ← rack name suffixes
         rack = models.Rack(name=f"RACK {i}")   # ← name format
-        db.add(rack)
-        db.flush()
-
-        for row in range(1, 11):               # ← 10 rows  (change upper limit)
-            for col in range(1, 8):            # ← 7 columns (change upper limit)
-                cage = models.Cage(rack_id=rack.id, row=row, column=col)
-                db.add(cage)
+        ...
+        for row in range(1, 11):               # ← 10 rows
+            for col in range(1, 8):            # ← 7 columns (A–G)
 ```
 
-**Example — 2 racks named A and B, each 8×6:**
-
-```python
-for name in ["RACK A", "RACK B"]:
-    rack = models.Rack(name=name)
-    db.add(rack)
-    db.flush()
-    for row in range(1, 9):     # 8 rows
-        for col in range(1, 7): # 6 columns
-            cage = models.Cage(rack_id=rack.id, row=row, column=col)
-            db.add(cage)
-```
-
-### Matching the frontend
-
-The "Add Animal" form uses a numeric offset to calculate cage IDs. If you change the rack count or starting number, update `frontend/src/App.jsx` line 101:
-
-```js
-// App.jsx line 101 — current formula for 3 racks starting at suffix 3
-const cageId = (parseInt(newAnimal.rack_id) - 3) * 70 + parseInt(newAnimal.cage_num);
-//              ↑ subtract the first rack's suffix     ↑ cages per rack (rows × cols)
-```
-
-Adjust the `- 3` offset and `* 70` multiplier to match your rack configuration.
-
-> **Note:** These changes only take effect on a fresh database. If data already exists, the racks will not be re-initialized. To reset, stop the stack and run `docker compose down -v` to delete the database volume, then `docker compose up --build`.
+The Excel import finds cages by rack number and position (`Rack 5: D4`), so keep a number at the end of each rack name. The seed only runs on an empty database; to start over, `docker compose down -v` deletes the database volume.
 
 ---
 
 ## Environment Variables
 
+Development (`.env`, see `.env.example`):
+
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `POSTGRES_USER` | PostgreSQL username | `postgres` |
-| `POSTGRES_PASSWORD` | PostgreSQL password | `postgres` |
-| `POSTGRES_DB` | Database name | `bioterio` |
-| `DATABASE_URL` | Full SQLAlchemy connection string | `postgresql://postgres:postgres@db:5432/bioterio` |
+| `POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_DB` | Database credentials | `postgres` / `postgres` / `bioterio` |
+| `DATABASE_URL` | SQLAlchemy connection string (host `db`, the Compose service) | `postgresql://postgres:postgres@db:5432/bioterio` |
+| `CORS_ORIGINS` | Origins allowed to call the API with the session cookie (comma separated) | `http://localhost:5173` |
+| `COOKIE_SECURE` | `true` when served over HTTPS | `false` |
+| `SESSION_HOURS` | Session length | `12` |
 
-> The `DATABASE_URL` must use the service name `db` as the host — this is the Docker Compose internal hostname for the database container.
-
----
-
-## API Reference
-
-The full interactive API documentation is available at `http://localhost:8000/docs` (Swagger UI) when the backend is running.
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| `GET` | `/racks` | List all racks with live animals |
-| `GET` | `/racks/{rack_id}` | Get a single rack with cage details |
-| `GET` | `/cages/{cage_id}/animals` | List live animals in a cage |
-| `PATCH` | `/cages/{cage_id}/breeding_status` | Toggle breeding pair flag |
-| `POST` | `/cages/merge` | Move all animals from source to destination cage |
-| `GET` | `/animals/history` | List dead and eliminated animals |
-| `GET` | `/statistics` | Inventory breakdown by genotype, sex, and age |
-| `POST` | `/animals` | Register a new animal |
-| `PUT` | `/animals/{animal_id}` | Update animal data |
-| `PATCH` | `/animals/{animal_id}/status` | Change animal status (Dead/Eliminated) |
-| `POST` | `/breeding/create` | Create a breeding group and move animals |
-| `POST` | `/breeding/end/{cage_id}` | End breeding and return animals to home cages |
-| `GET` | `/export/animals/csv` | Download full colony as CSV |
-| `POST` | `/import/animals/csv` | Bulk import/update animals from CSV |
+Production (`.env.prod`, see `.env.prod.example`) adds `PUBLIC_URL`, `WEB_PORT`, `WEB_BIND`, `TUNNEL_TOKEN`, `TRUST_CF_HEADER` and the backup settings `BACKUP_DIR`, `BACKUP_HOUR`, `BACKUP_KEEP_DAYS`, `TZ`.
 
 ---
 
-## CSV Import Format
+## API
 
-The import endpoint accepts CSV files exported by this system or manually prepared with these columns:
+Every endpoint except sign-in requires a session. The full interactive reference is at `http://localhost:8000/docs` (Swagger UI) when the development stack is running.
 
-| Column | Required | Example |
-|--------|----------|---------|
-| `Animal ID` | Yes | `MOUSE-001` |
-| `Rack` | No | `RACK 3` |
-| `Cage` | No | `A1-R3` |
-| `Sex` | Yes | `M` or `F` |
-| `Date of Birth` | Yes | `01/15/2025` or `2025-01-15` |
-| `Mark` | No | `R-EAR` |
-| `Genotype` | Yes | `WT` |
-| `Status` | No | `Vivo` / `Muerto` / `Eliminado` |
+| Area | Prefix / main endpoints |
+|------|-------------------------|
+| Auth and users | `/auth/login`, `/auth/logout`, `/auth/me`, `/auth/users` (admin), `/auth/audit` (admin) |
+| Racks and cages | `/racks`, `/cages/{id}/…` (breeding status, breeding dates, number, card, move), `/cages/swap-positions`, `/cages/merge`, `/cages/owner` |
+| Animals | `/animals`, `/animals/{id}`, `/animals/{id}/status`, `/animals/history`, `/animals/family`, `/animals/codes`, `/statistics` |
+| Breeding | `/breeding/create`, `/breeding/end/{cage_id}` |
+| Colony Excel | `/animals/export`, `/import/animals/rows` (dry run by default) |
+| EM grids | `/em/boxes`, `/em/grids` |
+| LN2 tank | `/ln2/tank`, `/ln2/boxes/{id}`, `/ln2/vials`, `/ln2/import` |
+| -80 freezers | `/m80/sample-types`, `/m80/freezers`, `/m80/compartments`, `/m80/racks`, `/m80/boxes`, `/m80/tubes`, `/m80/import` |
 
-Dates are accepted in `MM/DD/YYYY`, `MM/DD/YY`, and `YYYY-MM-DD` formats.
+The older CSV endpoints (`/export/animals/csv`, `/import/animals/csv`) are still available; the app uses the Excel format above.
 
 ---
 
